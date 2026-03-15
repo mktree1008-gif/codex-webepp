@@ -1,4 +1,6 @@
 .shell {
+  width: min(100%, 1500px);
+  margin: 0 auto;
   min-height: 100vh;
   padding: 28px;
 }
@@ -81,6 +83,7 @@
 .preset {
   border: 0;
   cursor: pointer;
+  min-height: 44px;
   transition:
     transform 180ms ease,
     background 180ms ease,
@@ -657,17 +660,19 @@ td code {
 
 @media (max-width: 720px) {
   .shell {
-    padding: 16px;
+    padding: 14px;
   }
 
   .hero-panel,
   .panel {
-    padding: 18px;
-    border-radius: 22px;
+    padding: 16px;
+    border-radius: 18px;
   }
 
   .hero-panel h1 {
-    max-width: 16ch;
+    max-width: 12ch;
+    font-size: clamp(1.9rem, 8.4vw, 2.7rem);
+    line-height: 1.06;
   }
 
   .hero-actions {
@@ -689,19 +694,91 @@ td code {
     width: 100%;
   }
 
-  .results-grid,
+  .results-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .field-grid,
   .preset-grid,
   .mini-stats {
     grid-template-columns: 1fr;
   }
 
-  table {
-    min-width: 440px;
+  .table-card {
+    overflow: hidden;
+  }
+
+  .responsive-table {
+    min-width: 0;
+  }
+
+  .responsive-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    clip: rect(0, 0, 0, 0);
+  }
+
+  .responsive-table,
+  .responsive-table tbody,
+  .responsive-table tr,
+  .responsive-table td {
+    display: block;
+    width: 100%;
+  }
+
+  .responsive-table tr {
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border-radius: 14px;
+    border: 1px solid rgba(34, 46, 38, 0.12);
+    background: rgba(255, 255, 255, 0.94);
+  }
+
+  .responsive-table tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .responsive-table td {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 0.55rem 0;
+    border-bottom: 1px dashed rgba(34, 46, 38, 0.12);
+    text-align: right;
+    word-break: break-word;
+  }
+
+  .responsive-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .responsive-table td::before {
+    content: attr(data-label);
+    flex: 0 0 44%;
+    text-align: left;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    word-break: keep-all;
+  }
+
+  .responsive-table td code {
+    white-space: normal;
+  }
+
+  .curve-card {
+    overflow-x: hidden;
   }
 
   .curve-svg {
-    min-width: 520px;
+    min-width: 0;
   }
 
   .equation-pretty {
@@ -717,7 +794,10 @@ td code {
 
 @media (max-width: 520px) {
   .shell {
-    padding: 10px;
+    padding: max(10px, env(safe-area-inset-top))
+      max(10px, env(safe-area-inset-right))
+      max(10px, env(safe-area-inset-bottom))
+      max(10px, env(safe-area-inset-left));
   }
 
   .hero-panel,
@@ -731,22 +811,19 @@ td code {
 
   .hero-panel h1 {
     max-width: none;
+    font-size: clamp(1.75rem, 8.2vw, 2.2rem);
   }
 
   .copy-status {
     font-size: 0.84rem;
   }
 
+  .results-grid {
+    grid-template-columns: 1fr;
+  }
+
   .field input,
   .field select {
     padding: 0.72rem 0.82rem;
-  }
-
-  table {
-    min-width: 390px;
-  }
-
-  .curve-svg {
-    min-width: 440px;
   }
 }

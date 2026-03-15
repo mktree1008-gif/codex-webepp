@@ -1577,7 +1577,7 @@ function App() {
             <div className="tables">
               <div className="table-card">
                 <h3>{text.composition}</h3>
-                <table>
+                <table className="responsive-table">
                   <thead>
                     <tr>
                       <th>{text.tableComponent}</th>
@@ -1594,10 +1594,10 @@ function App() {
                       ['PTFE', result.composition.volumeFractions.ptfe, result.composition.weightFractions.ptfe, result.composition.masses.ptfe],
                     ].map(([label, vol, wt, mass]) => (
                       <tr key={label}>
-                        <td>{label}</td>
-                        <td>{fmtPercent(vol as number)}</td>
-                        <td>{fmtPercent(wt as number)}</td>
-                        <td>{fmtNumber(mass as number, 4)}</td>
+                        <td data-label={text.tableComponent}>{label}</td>
+                        <td data-label={text.tableVolume}>{fmtPercent(vol as number)}</td>
+                        <td data-label={text.tableWeight}>{fmtPercent(wt as number)}</td>
+                        <td data-label={text.tableMass}>{fmtNumber(mass as number, 4)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1629,7 +1629,7 @@ function App() {
               <h2>{text.comparison}</h2>
             </div>
             <div className="table-card">
-              <table>
+              <table className="responsive-table">
                 <thead>
                   <tr>
                     <th>{text.caseName}</th>
@@ -1642,15 +1642,15 @@ function App() {
                 <tbody>
                   {comparison.map((entry) => (
                     <tr key={entry.input.id}>
-                      <td>{entry.input.label[locale]}</td>
-                      <td>{fmtPercent(entry.probability.pCapped)}</td>
-                      <td>{fmtNumber(entry.probability.sigma, 2)} S/m</td>
-                      <td>
+                      <td data-label={text.caseName}>{entry.input.label[locale]}</td>
+                      <td data-label={text.probability}>{fmtPercent(entry.probability.pCapped)}</td>
+                      <td data-label={text.conductivity}>{fmtNumber(entry.probability.sigma, 2)} S/m</td>
+                      <td data-label={text.minCnfWt}>
                         {entry.inverse.minCnfWeightFraction === null
                           ? text.unreachable
                           : fmtPercent(entry.inverse.minCnfWeightFraction)}
                       </td>
-                      <td>
+                      <td data-label={text.minCnfVol}>
                         {entry.inverse.minCnfVolFraction === null
                           ? text.unreachable
                           : fmtPercent(entry.inverse.minCnfVolFraction)}
@@ -1779,7 +1779,7 @@ function App() {
               <h2>{text.derivation}</h2>
             </div>
             <div className="table-card">
-              <table>
+              <table className="responsive-table">
                 <thead>
                   <tr>
                     <th>{text.caseName}</th>
@@ -1791,10 +1791,10 @@ function App() {
                 <tbody>
                   {result.derivation.map((step) => (
                     <tr key={`${step.label.en}-${step.value}`}>
-                      <td>{step.label[locale]}</td>
-                      <td><code>{step.formula}</code></td>
-                      <td><code>{step.substituted}</code></td>
-                      <td>{step.value}</td>
+                      <td data-label={text.caseName}>{step.label[locale]}</td>
+                      <td data-label={text.formula}><code>{step.formula}</code></td>
+                      <td data-label={text.substitution}><code>{step.substituted}</code></td>
+                      <td data-label={text.value}>{step.value}</td>
                     </tr>
                   ))}
                 </tbody>
