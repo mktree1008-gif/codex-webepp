@@ -43,6 +43,9 @@ const textByLocale = {
     inputs: 'Inputs',
     caseSetup: 'Case setup',
     mode: 'Composition mode',
+    inputStyle: 'Preset input style',
+    inputStyleFull4: 'Full 4-component wt% input',
+    inputStyleAutoAm: 'Auto-calc AM from SE/CNF/PTFE',
     composition: 'Composition',
     densities: 'Densities (g/cm³)',
     geometry: 'Geometry',
@@ -88,15 +91,18 @@ const textByLocale = {
     porosity: 'Porosity',
     cnfVol: 'CNF vol%',
     ptfeWt: 'PTFE wt%',
-    seMatrixWt: 'SE wt% in AM+SE matrix',
+    seMatrixWt: 'SE wt% (total solids basis)',
     amVol: 'AM vol%',
     seVol: 'SE vol%',
     ptfeVol: 'PTFE vol%',
     amWt: 'AM wt%',
-    seWt: 'SE wt%',
+    seWt: 'SE wt% (total solids basis)',
     cnfWt: 'CNF wt%',
+    sum: 'Sum',
+    sumOk: 'WT% sum matches 100%',
+    sumAdjust: 'WT% sum should be 100%',
     summaryNote:
-      'Preset interpretation: CNF wt% and PTFE wt% are treated as total-solid weight fractions, while SE wt% is treated as the SE share inside the AM+SE matrix. Percolation is then evaluated in converted volume fraction.',
+      'Preset interpretation uses total-solid wt% basis. You can either input all AM/SE/CNF/PTFE directly, or auto-calc AM from SE/CNF/PTFE. The app converts wt% to volume fractions, then evaluates percolation.',
     tableComponent: 'Component',
     tableVolume: 'Vol%',
     tableWeight: 'Wt%',
@@ -116,7 +122,7 @@ const textByLocale = {
       'These are the exact equations used in this app. The mixed-input workflow begins with wt% inputs, converts them into volume fractions with densities, and then applies a volume-fraction percolation model.',
     methodsWorkflow: '1. Mixed-input interpretation',
     methodsWorkflowText:
-      'For the preset workflow, CNF wt% and PTFE wt% are total-solid weight fractions. SE wt% is the SE share inside the AM+SE matrix. Porosity ε defines the solid fraction as 1 - ε.',
+      'For the preset workflow, AM wt%, SE wt%, CNF wt%, and PTFE wt% are all direct total-solid inputs. Their sum should be 100 wt%. Porosity ε defines the solid fraction as 1 - ε.',
     methodsMassBalance: '2. wt% to vol% conversion',
     methodsAccessible: '3. Accessible volume and effective concentration',
     methodsThresholds: '4. Percolation threshold model',
@@ -207,15 +213,16 @@ const textByLocale = {
     porosity: '기공도',
     cnfVol: 'CNF vol%',
     ptfeWt: 'PTFE wt%',
-    seMatrixWt: 'AM+SE 매트릭스 내 SE wt%',
+    seMatrixWt: 'SE wt% (전체 고형분 기준)',
     amVol: '활물질 vol%',
     seVol: '고체전해질 vol%',
     ptfeVol: 'PTFE vol%',
     amWt: '활물질 wt%',
-    seWt: '고체전해질 wt%',
+    seWt: 'SE wt% (전체 고형분 기준)',
     cnfWt: 'CNF wt%',
+    sum: '합계',
     summaryNote:
-      '프리셋 해석: CNF wt%와 PTFE wt%는 전체 고형분 기준으로, SE wt%는 AM+SE 매트릭스 내부 비율로 처리합니다. 이후 퍼콜레이션은 변환된 부피분율로 계산합니다.',
+      '프리셋 해석: 활물질, SE, CNF, PTFE를 모두 전체 고형분 기준 wt%로 직접 입력합니다. 앱은 이 wt%를 부피분율로 변환한 뒤 퍼콜레이션을 계산합니다.',
     tableComponent: '성분',
     tableVolume: 'Vol%',
     tableWeight: 'Wt%',
@@ -235,7 +242,7 @@ const textByLocale = {
       '아래 식이 이 앱에서 실제로 사용되는 계산식입니다. 혼합 입력 워크플로는 wt% 입력을 먼저 밀도로 vol%로 변환한 뒤, 그 부피분율에 퍼콜레이션 모델을 적용합니다.',
     methodsWorkflow: '1. 혼합 입력 해석',
     methodsWorkflowText:
-      '프리셋 워크플로에서 CNF wt%와 PTFE wt%는 전체 고형분 기준입니다. SE wt%는 AM+SE 매트릭스 내부에서의 SE 비율입니다. 기공도 ε는 고형분 부피를 1 - ε로 정의합니다.',
+      '프리셋 워크플로에서 활물질 wt%, SE wt%, CNF wt%, PTFE wt%는 모두 전체 고형분 기준 직접 입력값입니다. 이들의 합은 100 wt%가 되어야 합니다. 기공도 ε는 고형분 부피를 1 - ε로 정의합니다.',
     methodsMassBalance: '2. wt%에서 vol%로 변환',
     methodsAccessible: '3. 가용 부피와 유효 농도',
     methodsThresholds: '4. 퍼콜레이션 임계값 모델',
@@ -271,6 +278,7 @@ const textByLocale = {
 } as const
 
 type EquationView = 'code' | 'book'
+type PresetInputStyle = 'full_4_input' | 'auto_am'
 
 type EquationVariable = {
   symbol: string
@@ -301,6 +309,7 @@ type FieldProps = {
   percent?: boolean
   min?: number
   max?: number
+  readOnly?: boolean
 }
 
 function NumberField({
@@ -311,6 +320,7 @@ function NumberField({
   percent = false,
   min,
   max,
+  readOnly = false,
 }: FieldProps) {
   return (
     <label className="field">
@@ -321,9 +331,10 @@ function NumberField({
         step={step}
         min={min}
         max={max}
+        readOnly={readOnly}
         onChange={(event) => {
           const parsed = Number(event.target.value)
-          if (!Number.isNaN(parsed)) {
+          if (!readOnly && !Number.isNaN(parsed)) {
             onChange(percent ? parsed / 100 : parsed)
           }
         }}
@@ -536,6 +547,7 @@ const cloneCase = (input: CaseInput): CaseInput => JSON.parse(JSON.stringify(inp
 function App() {
   const [locale, setLocale] = useState<Locale>('en')
   const [currentInput, setCurrentInput] = useState<CaseInput>(presetCases[0].input)
+  const [presetInputStyle, setPresetInputStyle] = useState<PresetInputStyle>('auto_am')
   const [densities, setDensities] = useState<DensitySet>(defaultDensities)
   const [geometry, setGeometry] = useState<GeometryInput>(defaultGeometry)
   const [assumptions, setAssumptions] = useState<ModelAssumptions>(defaultModelAssumptions)
@@ -600,33 +612,30 @@ function App() {
         },
         {
           id: 'workflow-balance',
-          code: 'w_CNF + w_PTFE + w_matrix = 1',
+          code: 'w_AM + w_SE + w_CNF + w_PTFE = 1',
           pretty: (
             <BookEquation
               lhs={
                 <>
-                  w<sub>CNF</sub> + w<sub>PTFE</sub> + w<sub>matrix</sub>
+                  w<sub>AM</sub> + w<sub>SE</sub> + w<sub>CNF</sub> + w<sub>PTFE</sub>
                 </>
               }
               rhs={<>1</>}
             />
           ),
           summary:
-            locale === 'en'
-              ? 'Closes the weight-fraction balance in the preset workflow.'
-              : '프리셋 워크플로의 중량분율 합계를 닫아 줍니다.',
+            locale === 'en' ? 'Closes the direct weight-fraction balance.' : '직접 중량분율 합계를 닫아 줍니다.',
           explanation:
             locale === 'en'
-              ? 'In the preset workflow, CNF wt% and PTFE wt% are direct total-solid inputs. Everything left over becomes the AM+SE matrix weight share.'
-              : '프리셋 워크플로에서는 CNF wt%와 PTFE wt%가 전체 고형분 기준의 직접 입력값입니다. 나머지 질량이 AM+SE 매트릭스 몫이 됩니다.',
+              ? 'In the preset workflow, all four components are direct total-solid inputs. The sum should be 1.00, or 100 wt%.'
+              : '프리셋 워크플로에서는 4개 성분 모두가 전체 고형분 기준 직접 입력값입니다. 합은 1.00, 즉 100 wt%가 되어야 합니다.',
           conditions:
-            locale === 'en'
-              ? 'Requires CNF wt% + PTFE wt% <= 1.'
-              : 'CNF wt% + PTFE wt% <= 1 이어야 합니다.',
+            locale === 'en' ? 'Best used when the four-component sum is exactly 100 wt%.' : '4개 성분 합이 정확히 100 wt%일 때 가장 해석이 명확합니다.',
           variables: [
+            { symbol: 'wAM', meaning: locale === 'en' ? 'active-material weight fraction' : '활물질 중량분율' },
+            { symbol: 'wSE', meaning: locale === 'en' ? 'SE weight fraction' : 'SE 중량분율' },
             { symbol: 'wCNF', meaning: locale === 'en' ? 'CNF weight fraction' : 'CNF 중량분율' },
             { symbol: 'wPTFE', meaning: locale === 'en' ? 'PTFE weight fraction' : 'PTFE 중량분율' },
-            { symbol: 'wmatrix', meaning: locale === 'en' ? 'AM+SE matrix weight fraction' : 'AM+SE 매트릭스 중량분율' },
           ],
         },
       ],
@@ -635,45 +644,14 @@ function App() {
       title: text.methodsMassBalance,
       equations: [
         {
-          id: 'mass-matrix-specific',
-          code: 'v_matrix = (1 - w_SE,matrix) / rho_AM + w_SE,matrix / rho_SE',
-          pretty: (
-            <BookEquation
-              lhs={<>v<sub>matrix</sub></>}
-              rhs={
-                <>
-                  (1 - w<sub>SE,matrix</sub>) / ρ<sub>AM</sub> + w<sub>SE,matrix</sub> / ρ<sub>SE</sub>
-                </>
-              }
-            />
-          ),
-          summary:
-            locale === 'en'
-              ? 'Builds the specific-volume term for the AM+SE matrix.'
-              : 'AM+SE 매트릭스의 비체적 항을 만듭니다.',
-          explanation:
-            locale === 'en'
-              ? 'Because AM and SE have different densities, the matrix cannot be converted from wt% to vol% using one density. This weighted specific-volume term handles that.'
-              : 'AM과 SE의 밀도가 다르기 때문에 매트릭스를 하나의 밀도로 wt%에서 vol%로 바꿀 수 없습니다. 이 가중 비체적 항이 그 역할을 합니다.',
-          conditions:
-            locale === 'en'
-              ? 'Assumes only AM and SE are inside the matrix term.'
-              : '매트릭스 항 내부에는 AM과 SE만 들어간다고 가정합니다.',
-          variables: [
-            { symbol: 'vmatrix', meaning: locale === 'en' ? 'matrix specific volume' : '매트릭스 비체적' },
-            { symbol: 'wSE,matrix', meaning: locale === 'en' ? 'SE weight share inside AM+SE' : 'AM+SE 내부 SE 중량비' },
-            { symbol: 'ρAM, ρSE', meaning: locale === 'en' ? 'phase densities' : '상 밀도' },
-          ],
-        },
-        {
           id: 'mass-total-solid',
-          code: 'M_solid = (1 - epsilon) / [w_CNF/rho_CNF + w_PTFE/rho_PTFE + w_matrix * v_matrix]',
+          code: 'M_solid = (1 - epsilon) / [w_AM/rho_AM + w_SE/rho_SE + w_CNF/rho_CNF + w_PTFE/rho_PTFE]',
           pretty: (
             <BookEquation
               lhs={<>M<sub>solid</sub></>}
               rhs={
                 <>
-                  (1 - ε) / [w<sub>CNF</sub>/ρ<sub>CNF</sub> + w<sub>PTFE</sub>/ρ<sub>PTFE</sub> + w<sub>matrix</sub> · v<sub>matrix</sub>]
+                  (1 - ε) / [w<sub>AM</sub>/ρ<sub>AM</sub> + w<sub>SE</sub>/ρ<sub>SE</sub> + w<sub>CNF</sub>/ρ<sub>CNF</sub> + w<sub>PTFE</sub>/ρ<sub>PTFE</sub>]
                 </>
               }
             />
@@ -1020,6 +998,13 @@ function App() {
             const pointResult = calculateCase(
               {
                 ...currentInput,
+                amWeightFraction: Math.max(
+                  0,
+                  1 -
+                    currentInput.seWeightFraction -
+                    currentInput.ptfeWeightFraction -
+                    weight,
+                ),
                 cnfWeightFraction: weight,
               },
               deferredDensities,
@@ -1044,11 +1029,75 @@ function App() {
         })()
       : null
 
+  const weightFractionSum =
+    currentInput.mode === 'presetMixed' || currentInput.mode === 'directWeight'
+      ? currentInput.amWeightFraction +
+        currentInput.seWeightFraction +
+        currentInput.cnfWeightFraction +
+        currentInput.ptfeWeightFraction
+      : null
+  const isWeightFractionSumValid =
+    weightFractionSum === null ? false : Math.abs(weightFractionSum - 1) <= 1e-6
+
   const setCaseValue = (patch: Partial<CaseInput>) => {
     setCurrentInput((previous) => ({
       ...previous,
       ...patch,
     }) as CaseInput)
+  }
+
+  const setPresetInputStyleMode = (nextStyle: PresetInputStyle) => {
+    setPresetInputStyle(nextStyle)
+    if (nextStyle !== 'auto_am') {
+      return
+    }
+    setCurrentInput((previous) => {
+      if (previous.mode !== 'presetMixed') {
+        return previous
+      }
+      return {
+        ...previous,
+        amWeightFraction: Math.max(
+          0,
+          1 -
+            previous.seWeightFraction -
+            previous.cnfWeightFraction -
+            previous.ptfeWeightFraction,
+        ),
+      }
+    })
+  }
+
+  const setPresetWeightValue = (
+    key:
+      | 'amWeightFraction'
+      | 'seWeightFraction'
+      | 'cnfWeightFraction'
+      | 'ptfeWeightFraction',
+    next: number,
+  ) => {
+    setCurrentInput((previous) => {
+      if (previous.mode !== 'presetMixed') {
+        return previous
+      }
+      const updated = {
+        ...previous,
+        [key]: next,
+      }
+      if (presetInputStyle !== 'auto_am' || key === 'amWeightFraction') {
+        return updated
+      }
+      return {
+        ...updated,
+        amWeightFraction: Math.max(
+          0,
+          1 -
+            updated.seWeightFraction -
+            updated.cnfWeightFraction -
+            updated.ptfeWeightFraction,
+        ),
+      }
+    })
   }
 
   const setCaseMode = (mode: CompositionMode) => {
@@ -1137,6 +1186,23 @@ function App() {
       </li>
     ))
 
+  const presetInputStyleLabel =
+    locale === 'en' ? 'Preset input style' : '프리셋 입력 방식'
+  const presetInputStyleFull4Label =
+    locale === 'en'
+      ? 'Full 4-component wt% input'
+      : '4소재 wt% 직접 입력'
+  const presetInputStyleAutoLabel =
+    locale === 'en'
+      ? 'Auto-calc AM from SE/CNF/PTFE'
+      : 'SE/CNF/PTFE로 AM 자동 계산'
+  const sumOkLabel =
+    locale === 'en' ? 'WT% sum matches 100%' : 'WT% 합계가 100%입니다'
+  const sumAdjustLabel =
+    locale === 'en'
+      ? 'WT% sum should be 100%'
+      : 'WT% 합계를 100%로 맞춰주세요'
+
   return (
     <div className="shell">
       <header className="hero-panel">
@@ -1211,26 +1277,75 @@ function App() {
             <div className="field-grid">
               {currentInput.mode === 'presetMixed' && (
                 <>
+                  <SelectField
+                    label={presetInputStyleLabel}
+                    value={presetInputStyle}
+                    onChange={(next) =>
+                      setPresetInputStyleMode(next as PresetInputStyle)
+                    }
+                    options={[
+                      {
+                        value: 'full_4_input',
+                        label: presetInputStyleFull4Label,
+                      },
+                      {
+                        value: 'auto_am',
+                        label: presetInputStyleAutoLabel,
+                      },
+                    ]}
+                  />
+                  <NumberField
+                    label={text.amWt}
+                    value={currentInput.amWeightFraction}
+                    onChange={(next) =>
+                      setPresetWeightValue('amWeightFraction', next)
+                    }
+                    percent
+                    readOnly={presetInputStyle === 'auto_am'}
+                  />
+                  <NumberField
+                    label={text.seWt}
+                    value={currentInput.seWeightFraction}
+                    onChange={(next) =>
+                      setPresetWeightValue('seWeightFraction', next)
+                    }
+                    percent
+                  />
                   <NumberField
                     label={text.cnfWt}
                     value={currentInput.cnfWeightFraction}
-                    onChange={(next) => setCaseValue({ cnfWeightFraction: next })}
+                    onChange={(next) =>
+                      setPresetWeightValue('cnfWeightFraction', next)
+                    }
                     percent
                   />
                   <NumberField
                     label={text.ptfeWt}
                     value={currentInput.ptfeWeightFraction}
-                    onChange={(next) => setCaseValue({ ptfeWeightFraction: next })}
-                    percent
-                  />
-                  <NumberField
-                    label={text.seMatrixWt}
-                    value={currentInput.seWeightFractionInMatrix}
                     onChange={(next) =>
-                      setCaseValue({ seWeightFractionInMatrix: next })
+                      setPresetWeightValue('ptfeWeightFraction', next)
                     }
                     percent
                   />
+                  <NumberField
+                    label={text.sum}
+                    value={weightFractionSum ?? 0}
+                    onChange={() => {}}
+                    percent
+                    readOnly
+                  />
+                  <div
+                    className={`sum-status ${
+                      isWeightFractionSumValid
+                        ? 'sum-status--ok'
+                        : 'sum-status--warn'
+                    }`}
+                  >
+                    <span>
+                      {isWeightFractionSumValid ? sumOkLabel : sumAdjustLabel}
+                    </span>
+                    <strong>{fmtPercent(weightFractionSum ?? 0)}</strong>
+                  </div>
                 </>
               )}
               {currentInput.mode === 'directVolume' && (
@@ -1287,6 +1402,25 @@ function App() {
                     onChange={(next) => setCaseValue({ ptfeWeightFraction: next })}
                     percent
                   />
+                  <NumberField
+                    label={text.sum}
+                    value={weightFractionSum ?? 0}
+                    onChange={() => {}}
+                    percent
+                    readOnly
+                  />
+                  <div
+                    className={`sum-status ${
+                      isWeightFractionSumValid
+                        ? 'sum-status--ok'
+                        : 'sum-status--warn'
+                    }`}
+                  >
+                    <span>
+                      {isWeightFractionSumValid ? sumOkLabel : sumAdjustLabel}
+                    </span>
+                    <strong>{fmtPercent(weightFractionSum ?? 0)}</strong>
+                  </div>
                 </>
               )}
               <NumberField

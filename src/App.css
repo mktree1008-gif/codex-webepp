@@ -211,6 +211,38 @@
   border-color: rgba(52, 127, 94, 0.35);
 }
 
+.field input[readonly] {
+  background: rgba(34, 46, 38, 0.06);
+  color: rgba(31, 41, 55, 0.88);
+}
+
+.sum-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0.72rem 0.85rem;
+  border-radius: 14px;
+  border: 1px solid;
+  font-size: 0.9rem;
+}
+
+.sum-status strong {
+  font-size: 0.95rem;
+}
+
+.sum-status--ok {
+  background: rgba(52, 127, 94, 0.12);
+  border-color: rgba(52, 127, 94, 0.32);
+  color: #1f513d;
+}
+
+.sum-status--warn {
+  background: rgba(241, 113, 56, 0.12);
+  border-color: rgba(241, 113, 56, 0.32);
+  color: #7a3411;
+}
+
 .results-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));

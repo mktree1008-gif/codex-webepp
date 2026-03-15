@@ -31,5 +31,26 @@ describe('App', () => {
     ).toBeInTheDocument()
     expect(screen.getByText('사용한 식과 모델 조건')).toBeInTheDocument()
     expect(screen.getByText('수학책형 보기')).toBeInTheDocument()
+  }, 15000)
+
+  test('shows total-solids wt% sum status in preset input', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    const amInput = screen.getByLabelText('AM wt%') as HTMLInputElement
+    expect(amInput).toHaveAttribute('readonly')
+    expect(screen.getByText('WT% sum matches 100%')).toBeInTheDocument()
+
+    const seInput = screen.getByLabelText(
+      'SE wt% (total solids basis)',
+    ) as HTMLInputElement
+    const cnfInput = screen.getByLabelText('CNF wt%') as HTMLInputElement
+
+    await user.clear(seInput)
+    await user.type(seInput, '80')
+    await user.clear(cnfInput)
+    await user.type(cnfInput, '30')
+
+    expect(screen.getByText('WT% sum should be 100%')).toBeInTheDocument()
   })
 })
