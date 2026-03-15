@@ -641,6 +641,82 @@ td code {
   margin-top: 8px;
 }
 
+.mobile-scroll-rail,
+.mobile-jump-fab {
+  display: none;
+}
+
+.mobile-scroll-rail {
+  position: fixed;
+  right: max(8px, env(safe-area-inset-right));
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 55;
+  width: 24px;
+  height: 170px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(34, 46, 38, 0.16);
+  background: rgba(252, 249, 244, 0.72);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 12px 24px rgba(21, 26, 22, 0.18);
+}
+
+.mobile-scroll-rail-track {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(32, 49, 39, 0.22), rgba(32, 49, 39, 0.1));
+  padding: 0;
+  cursor: pointer;
+}
+
+.mobile-scroll-rail-track:focus-visible {
+  outline: 2px solid rgba(241, 113, 56, 0.8);
+  outline-offset: 2px;
+}
+
+.mobile-scroll-rail-thumb {
+  position: absolute;
+  left: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.mobile-jump-fab {
+  position: fixed;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 60;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  border: 0;
+  background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+  color: #fff;
+  font-size: 1.35rem;
+  font-weight: 700;
+  box-shadow: 0 14px 26px rgba(197, 85, 36, 0.36);
+  cursor: pointer;
+}
+
+.mobile-jump-fab:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.92);
+  outline-offset: 2px;
+}
+
+.mobile-jump-fab:active {
+  transform: scale(0.97);
+}
+
 @media (max-width: 1100px) {
   .workspace,
   .hero-panel,
@@ -661,6 +737,16 @@ td code {
 @media (max-width: 720px) {
   .shell {
     padding: 14px;
+  }
+
+  .mobile-scroll-rail {
+    display: block;
+  }
+
+  .mobile-jump-fab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .hero-panel,
@@ -816,6 +902,24 @@ td code {
 
   .copy-status {
     font-size: 0.84rem;
+  }
+
+  .mobile-scroll-rail {
+    right: max(6px, env(safe-area-inset-right));
+    width: 22px;
+    height: 150px;
+  }
+
+  .mobile-scroll-rail-thumb {
+    width: 14px;
+    height: 14px;
+  }
+
+  .mobile-jump-fab {
+    right: max(10px, env(safe-area-inset-right));
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: 50px;
+    height: 50px;
   }
 
   .results-grid {

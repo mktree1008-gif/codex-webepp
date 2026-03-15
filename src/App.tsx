@@ -1,4 +1,13 @@
-import { startTransition, useDeferredValue, useState, type ReactNode } from 'react'
+import {
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from 'react'
 import './App.css'
 import { calculateCase } from './lib/calculations'
 import {
@@ -540,6 +549,21 @@ function ProbabilityCurve({
 
 const cloneCase = (input: CaseInput): CaseInput => JSON.parse(JSON.stringify(input))
 
+type ScrollDirection = 'up' | 'down'
+
+type ScrollNavState = {
+  scrollTop: number
+  scrollProgress: number
+  direction: ScrollDirection
+  isAtTop: boolean
+  isAtBottom: boolean
+  isMobile: boolean
+  isScrollable: boolean
+}
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value))
+
 function App() {
   const [locale, setLocale] = useState<Locale>('en')
   const [currentInput, setCurrentInput] = useState<CaseInput>(presetCases[0].input)
@@ -549,11 +573,99 @@ function App() {
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [equationView, setEquationView] = useState<EquationView>('code')
   const [selectedEquationId, setSelectedEquationId] = useState('workflow-solid')
+  const [scrollNav, setScrollNav] = useState<ScrollNavState>({
+    scrollTop: 0,
+    scrollProgress: 0,
+    direction: 'down',
+    isAtTop: true,
+    isAtBottom: false,
+    isMobile: false,
+    isScrollable: false,
+  })
+
+  const scrollRafRef = useRef<number | null>(null)
+  const previousScrollTopRef = useRef(0)
 
   const deferredInput = useDeferredValue(currentInput)
   const deferredDensities = useDeferredValue(densities)
   const deferredGeometry = useDeferredValue(geometry)
   const deferredAssumptions = useDeferredValue(assumptions)
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const updateScrollNav = () => {
+      const documentElement = document.documentElement
+      const scrollTop = Math.max(window.scrollY || documentElement.scrollTop || 0, 0)
+      const maxScroll = Math.max(documentElement.scrollHeight - window.innerHeight, 0)
+      const isScrollable = maxScroll > 2
+      const progress = isScrollable ? clamp(scrollTop / maxScroll, 0, 1) : 0
+      const isAtTop = scrollTop <= 2
+      const isAtBottom = !isScrollable || scrollTop >= maxScroll - 2
+      const rawDirection: ScrollDirection =
+        scrollTop > previousScrollTopRef.current
+          ? 'down'
+          : scrollTop < previousScrollTopRef.current
+            ? 'up'
+            : 'down'
+      const isMobile = window.matchMedia('(max-width: 720px)').matches
+
+      previousScrollTopRef.current = scrollTop
+
+      setScrollNav((previous) => {
+        const direction = rawDirection === 'down' && scrollTop === previous.scrollTop
+          ? previous.direction
+          : rawDirection
+
+        if (
+          previous.scrollTop === scrollTop &&
+          previous.scrollProgress === progress &&
+          previous.direction === direction &&
+          previous.isAtTop === isAtTop &&
+          previous.isAtBottom === isAtBottom &&
+          previous.isMobile === isMobile &&
+          previous.isScrollable === isScrollable
+        ) {
+          return previous
+        }
+
+        return {
+          scrollTop,
+          scrollProgress: progress,
+          direction,
+          isAtTop,
+          isAtBottom,
+          isMobile,
+          isScrollable,
+        }
+      })
+    }
+
+    const scheduleUpdate = () => {
+      if (scrollRafRef.current !== null) {
+        return
+      }
+
+      scrollRafRef.current = window.requestAnimationFrame(() => {
+        scrollRafRef.current = null
+        updateScrollNav()
+      })
+    }
+
+    updateScrollNav()
+    window.addEventListener('scroll', scheduleUpdate, { passive: true })
+    window.addEventListener('resize', scheduleUpdate)
+
+    return () => {
+      window.removeEventListener('scroll', scheduleUpdate)
+      window.removeEventListener('resize', scheduleUpdate)
+      if (scrollRafRef.current !== null) {
+        window.cancelAnimationFrame(scrollRafRef.current)
+      }
+    }
+  }, [])
 
   const text = textByLocale[locale]
   const equationSections: EquationSection[] = [
@@ -1152,6 +1264,71 @@ function App() {
     locale === 'en'
       ? 'WT% sum should be 100%'
       : 'WT% 합계를 100%로 맞춰주세요'
+
+  const scrollRailLabel =
+    locale === 'en'
+      ? 'Jump to a specific scroll position'
+      : '스크롤을 원하는 위치로 바로 이동'
+  const jumpToTopLabel =
+    locale === 'en' ? 'Jump to top' : '맨 위로 이동'
+  const jumpToBottomLabel =
+    locale === 'en' ? 'Jump to bottom' : '맨 아래로 이동'
+
+  const showMobileScrollNav = scrollNav.isMobile && scrollNav.isScrollable
+  const jumpDirection: ScrollDirection = scrollNav.isAtBottom
+    ? 'up'
+    : scrollNav.isAtTop
+      ? 'down'
+      : scrollNav.direction
+  const jumpButtonLabel =
+    jumpDirection === 'down' ? jumpToBottomLabel : jumpToTopLabel
+
+  const scrollToProgress = (progress: number, behavior: ScrollBehavior) => {
+    if (typeof window === 'undefined') {
+      return
+    }
+
+    const documentElement = document.documentElement
+    const maxScroll = Math.max(documentElement.scrollHeight - window.innerHeight, 0)
+
+    window.scrollTo({
+      top: clamp(progress, 0, 1) * maxScroll,
+      behavior,
+    })
+  }
+
+  const handleMobileJumpClick = () => {
+    scrollToProgress(jumpDirection === 'down' ? 1 : 0, 'smooth')
+  }
+
+  const handleRailClick = (event: MouseEvent<HTMLButtonElement>) => {
+    const bounds = event.currentTarget.getBoundingClientRect()
+    const relativeY = event.clientY - bounds.top
+    const nextProgress = bounds.height > 0 ? relativeY / bounds.height : 0
+    scrollToProgress(nextProgress, 'auto')
+  }
+
+  const handleRailKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'Home') {
+      event.preventDefault()
+      scrollToProgress(0, 'smooth')
+      return
+    }
+    if (event.key === 'End') {
+      event.preventDefault()
+      scrollToProgress(1, 'smooth')
+      return
+    }
+    if (event.key === 'ArrowUp' || event.key === 'PageUp') {
+      event.preventDefault()
+      scrollToProgress(scrollNav.scrollProgress - 0.1, 'smooth')
+      return
+    }
+    if (event.key === 'ArrowDown' || event.key === 'PageDown') {
+      event.preventDefault()
+      scrollToProgress(scrollNav.scrollProgress + 0.1, 'smooth')
+    }
+  }
 
   return (
     <div className="shell">
@@ -1803,6 +1980,33 @@ function App() {
           </article>
         </section>
       </main>
+      {showMobileScrollNav ? (
+        <>
+          <div className="mobile-scroll-rail" aria-hidden={false}>
+            <button
+              type="button"
+              className="mobile-scroll-rail-track"
+              onClick={handleRailClick}
+              onKeyDown={handleRailKeyDown}
+              aria-label={scrollRailLabel}
+            >
+              <span
+                className="mobile-scroll-rail-thumb"
+                style={{ top: `${scrollNav.scrollProgress * 100}%` }}
+              />
+            </button>
+          </div>
+          <button
+            type="button"
+            className="mobile-jump-fab"
+            onClick={handleMobileJumpClick}
+            aria-label={jumpButtonLabel}
+            title={jumpButtonLabel}
+          >
+            <span aria-hidden>{jumpDirection === 'down' ? '↓' : '↑'}</span>
+          </button>
+        </>
+      ) : null}
     </div>
   )
 }
