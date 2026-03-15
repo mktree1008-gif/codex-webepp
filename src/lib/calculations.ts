@@ -121,23 +121,27 @@ const resolvePresetMixed = (
   steps: DerivationStep[],
 ): CompositionResolved => {
   const solidVolume = clamp(1 - input.porosity)
-  const cnfWt = clamp(input.cnfWeightFraction, 0, 0.95)
-  const matrixRatio = clamp(input.seWeightFractionInMatrix)
-  const ptfeWt = clamp(input.ptfeWeightFraction, 0, 0.95)
-  const matrixWeightShare = Math.max(0, 1 - cnfWt - ptfeWt)
-  const matrixSpecificVolume =
-    (1 - matrixRatio) / densities.am + matrixRatio / densities.se
+  const normalizedWeights = normalizeFractions(
+    {
+      am: input.amWeightFraction,
+      se: input.seWeightFraction,
+      cnf: input.cnfWeightFraction,
+      ptfe: input.ptfeWeightFraction,
+    },
+    warnings,
+    'preset_weight',
+  )
   const solidSpecificVolume =
-    cnfWt / densities.cnf +
-    ptfeWt / densities.ptfe +
-    matrixWeightShare * matrixSpecificVolume
+    normalizedWeights.am / densities.am +
+    normalizedWeights.se / densities.se +
+    normalizedWeights.cnf / densities.cnf +
+    normalizedWeights.ptfe / densities.ptfe
   const totalSolidMass =
     solidSpecificVolume <= 0 ? 0 : safeDivide(solidVolume, solidSpecificVolume)
-  const cnfMass = totalSolidMass * cnfWt
-  const ptfeMass = totalSolidMass * ptfeWt
-  const matrixMass = totalSolidMass * matrixWeightShare
-  const amMass = matrixMass * (1 - matrixRatio)
-  const seMass = matrixMass * matrixRatio
+  const amMass = totalSolidMass * normalizedWeights.am
+  const seMass = totalSolidMass * normalizedWeights.se
+  const cnfMass = totalSolidMass * normalizedWeights.cnf
+  const ptfeMass = totalSolidMass * normalizedWeights.ptfe
   const volumes: FractionMap = {
     am: safeDivide(amMass, densities.am),
     se: safeDivide(seMass, densities.se),
@@ -162,44 +166,37 @@ const resolvePresetMixed = (
     cnf: cnfMass,
     ptfe: ptfeMass,
   }
-  const weightFractions: FractionMap = {
-    am: safeDivide(masses.am, totalSolidMass),
-    se: safeDivide(masses.se, totalSolidMass),
-    cnf: safeDivide(masses.cnf, totalSolidMass),
-    ptfe: safeDivide(masses.ptfe, totalSolidMass),
-  }
-
   steps.push(
     createStep(
-      'Preset mixed-input mass balance',
-      '프리셋 혼합 입력 질량 균형식',
-      'Msolid = (1 - porosity) / [wCNF/ρCNF + wPTFE/ρPTFE + (1 - wCNF - wPTFE) × ((1 - wSE,matrix)/ρAM + wSE,matrix/ρSE)]',
-      `${solidVolume.toFixed(4)} / [${cnfWt.toFixed(4)}/${densities.cnf.toFixed(2)} + ${ptfeWt.toFixed(4)}/${densities.ptfe.toFixed(2)} + ${matrixWeightShare.toFixed(4)} × ((1 - ${matrixRatio.toFixed(4)})/${densities.am.toFixed(2)} + ${matrixRatio.toFixed(4)}/${densities.se.toFixed(2)})]`,
+      'Preset direct-weight mass balance',
+      '프리셋 직접 중량 질량 균형식',
+      'Msolid = (1 - porosity) / Σ(wi / ρi)',
+      `${solidVolume.toFixed(4)} / [${normalizedWeights.am.toFixed(4)}/${densities.am.toFixed(2)} + ${normalizedWeights.se.toFixed(4)}/${densities.se.toFixed(2)} + ${normalizedWeights.cnf.toFixed(4)}/${densities.cnf.toFixed(2)} + ${normalizedWeights.ptfe.toFixed(4)}/${densities.ptfe.toFixed(2)}]`,
       `${totalSolidMass.toFixed(4)}`,
       createText(
-        'Percolation is computed in volume fraction, so the mixed-input workflow converts CNF wt%, PTFE wt%, and SE matrix wt% into masses first and volume fractions second.',
-        '퍼콜레이션은 부피분율 기준으로 계산되므로, 혼합 입력 워크플로는 CNF wt%, PTFE wt%, SE 매트릭스 wt%를 먼저 질량으로 해석한 뒤 부피분율로 변환합니다.',
+        'Percolation is computed in volume fraction, so the mixed-input workflow converts AM, SE, CNF, and PTFE wt% into masses first and volume fractions second.',
+        '퍼콜레이션은 부피분율 기준으로 계산되므로, 혼합 입력 워크플로는 AM, SE, CNF, PTFE wt%를 먼저 질량으로 해석한 뒤 부피분율로 변환합니다.',
       ),
-    ),
-    createStep(
-      'Matrix specific volume',
-      '매트릭스 비체적',
-      'vmatrix = (1 - wSE,matrix)/ρAM + wSE,matrix/ρSE',
-      `(1 - ${matrixRatio.toFixed(4)})/${densities.am.toFixed(2)} + ${matrixRatio.toFixed(4)}/${densities.se.toFixed(2)}`,
-      `${matrixSpecificVolume.toFixed(5)}`,
     ),
   )
 
   return {
     volumeFractions: volumes,
-    weightFractions,
+    weightFractions: normalizedWeights,
     masses,
-    normalized: false,
+    normalized:
+      Math.abs(
+        input.amWeightFraction +
+          input.seWeightFraction +
+          input.cnfWeightFraction +
+          input.ptfeWeightFraction -
+          1,
+    ) > 1e-6,
     totalSolidVolume: solidVolume,
     totalSolidMass,
-    cnfWeightFractionOfSolids: weightFractions.cnf,
+    cnfWeightFractionOfSolids: normalizedWeights.cnf,
     seWeightFractionInMatrix: safeDivide(masses.se, masses.am + masses.se),
-    ptfeWeightFractionOfSolids: weightFractions.ptfe,
+    ptfeWeightFractionOfSolids: normalizedWeights.ptfe,
   }
 }
 
@@ -399,9 +396,10 @@ const buildInverseTemplate = (result: {
   id: `${result.input.id}-inverse`,
   label: result.input.label,
   mode: 'presetMixed',
+  amWeightFraction: result.composition.weightFractions.am,
+  seWeightFraction: result.composition.weightFractions.se,
   cnfWeightFraction: result.composition.weightFractions.cnf,
   ptfeWeightFraction: result.composition.ptfeWeightFractionOfSolids,
-  seWeightFractionInMatrix: result.composition.seWeightFractionInMatrix,
   porosity: result.input.porosity,
 })
 
@@ -416,6 +414,10 @@ const computeTargetProbability = (
   const steps: DerivationStep[] = []
   const candidate = {
     ...template,
+    amWeightFraction: Math.max(
+      0,
+      1 - template.seWeightFraction - template.ptfeWeightFraction - cnfWeightFraction,
+    ),
     cnfWeightFraction,
   }
   const composition = resolvePresetMixed(candidate, densities, warnings, steps)
@@ -437,7 +439,10 @@ const solveInverse = (
   assumptions: ModelAssumptions,
 ): { minCnfVolFraction: number | null; minCnfWeightFraction: number | null } => {
   const template = buildInverseTemplate({ composition, input })
-  const hi = Math.max(0.0001, 1 - template.ptfeWeightFraction - 1e-6)
+  const hi = Math.max(
+    0.0001,
+    1 - template.seWeightFraction - template.ptfeWeightFraction - 1e-6,
+  )
   const target = assumptions.targetProbability
   const hiValue = computeTargetProbability(
     hi,

@@ -33,11 +33,8 @@ describe('calculateCase', () => {
 
   test('ships the expected SE presets', () => {
     expect(presetCases.map((preset) => preset.id)).toEqual(['se-35', 'se-24', 'se-21'])
-    expect(presetCases.map((preset) => preset.input.seWeightFractionInMatrix)).toEqual([
-      0.35,
-      0.24,
-      0.21,
-    ])
+    expect(presetCases.map((preset) => preset.input.seWeightFraction)).toEqual([0.35, 0.24, 0.21])
+    expect(presetCases.map((preset) => preset.input.amWeightFraction)).toEqual([0.62, 0.73, 0.76])
   })
 
   test('reproduces the segregated threshold from Vth,ideal and size ratio', () => {
@@ -101,6 +98,11 @@ describe('calculateCase', () => {
     const solved = calculateCase(
       {
         ...presetCases[2].input,
+        amWeightFraction:
+          1 -
+          presetCases[2].input.seWeightFraction -
+          presetCases[2].input.ptfeWeightFraction -
+          (baseline.inverse.minCnfWeightFraction ?? presetCases[2].input.cnfWeightFraction),
         cnfWeightFraction:
           baseline.inverse.minCnfWeightFraction ?? presetCases[2].input.cnfWeightFraction,
       },

@@ -35,7 +35,8 @@ npm run lint
 
 - `P0`, `sigma0`, `beta`, `t`, `Vth,ideal`, and accessible-volume rules are intentionally editable assumptions.
 - The preset interpretation follows the workflow from the source conversation:
+  - `AM wt%` is treated as a total-solid weight fraction.
+  - `SE wt%` is treated as a total-solid weight fraction.
   - `CNF wt%` is treated as a total-solid weight fraction.
-  - `SE wt%` is treated as the SE share inside the `AM + SE` matrix.
   - `PTFE wt%` is treated as a total-solid weight fraction.
   - the percolation model then converts those wt% values into `vol%` using the specified densities before calculating `Veff`, `Vth`, `P`, and `σ`.

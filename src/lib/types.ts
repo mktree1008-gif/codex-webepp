@@ -58,9 +58,10 @@ type BaseCaseInput = {
 
 export type PresetMixedCaseInput = BaseCaseInput & {
   mode: 'presetMixed'
+  amWeightFraction: number
+  seWeightFraction: number
   cnfWeightFraction: number
   ptfeWeightFraction: number
-  seWeightFractionInMatrix: number
 }
 
 export type DirectVolumeCaseInput = BaseCaseInput & {
