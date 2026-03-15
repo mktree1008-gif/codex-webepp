@@ -43,9 +43,6 @@ const textByLocale = {
     inputs: 'Inputs',
     caseSetup: 'Case setup',
     mode: 'Composition mode',
-    inputStyle: 'Preset input style',
-    inputStyleFull4: 'Full 4-component wt% input',
-    inputStyleAutoAm: 'Auto-calc AM from SE/CNF/PTFE',
     composition: 'Composition',
     densities: 'Densities (g/cm³)',
     geometry: 'Geometry',
@@ -102,7 +99,7 @@ const textByLocale = {
     sumOk: 'WT% sum matches 100%',
     sumAdjust: 'WT% sum should be 100%',
     summaryNote:
-      'Preset interpretation uses total-solid wt% basis. You can either input all AM/SE/CNF/PTFE directly, or auto-calc AM from SE/CNF/PTFE. The app converts wt% to volume fractions, then evaluates percolation.',
+      'Preset interpretation uses total-solid wt% basis. Input AM/SE/CNF/PTFE directly so their sum is 100 wt%. The app converts wt% to volume fractions, then evaluates percolation.',
     tableComponent: 'Component',
     tableVolume: 'Vol%',
     tableWeight: 'Wt%',
@@ -278,7 +275,6 @@ const textByLocale = {
 } as const
 
 type EquationView = 'code' | 'book'
-type PresetInputStyle = 'full_4_input' | 'auto_am'
 
 type EquationVariable = {
   symbol: string
@@ -547,7 +543,6 @@ const cloneCase = (input: CaseInput): CaseInput => JSON.parse(JSON.stringify(inp
 function App() {
   const [locale, setLocale] = useState<Locale>('en')
   const [currentInput, setCurrentInput] = useState<CaseInput>(presetCases[0].input)
-  const [presetInputStyle, setPresetInputStyle] = useState<PresetInputStyle>('auto_am')
   const [densities, setDensities] = useState<DensitySet>(defaultDensities)
   const [geometry, setGeometry] = useState<GeometryInput>(defaultGeometry)
   const [assumptions, setAssumptions] = useState<ModelAssumptions>(defaultModelAssumptions)
@@ -1046,28 +1041,6 @@ function App() {
     }) as CaseInput)
   }
 
-  const setPresetInputStyleMode = (nextStyle: PresetInputStyle) => {
-    setPresetInputStyle(nextStyle)
-    if (nextStyle !== 'auto_am') {
-      return
-    }
-    setCurrentInput((previous) => {
-      if (previous.mode !== 'presetMixed') {
-        return previous
-      }
-      return {
-        ...previous,
-        amWeightFraction: Math.max(
-          0,
-          1 -
-            previous.seWeightFraction -
-            previous.cnfWeightFraction -
-            previous.ptfeWeightFraction,
-        ),
-      }
-    })
-  }
-
   const setPresetWeightValue = (
     key:
       | 'amWeightFraction'
@@ -1080,22 +1053,9 @@ function App() {
       if (previous.mode !== 'presetMixed') {
         return previous
       }
-      const updated = {
+      return {
         ...previous,
         [key]: next,
-      }
-      if (presetInputStyle !== 'auto_am' || key === 'amWeightFraction') {
-        return updated
-      }
-      return {
-        ...updated,
-        amWeightFraction: Math.max(
-          0,
-          1 -
-            updated.seWeightFraction -
-            updated.cnfWeightFraction -
-            updated.ptfeWeightFraction,
-        ),
       }
     })
   }
@@ -1186,16 +1146,6 @@ function App() {
       </li>
     ))
 
-  const presetInputStyleLabel =
-    locale === 'en' ? 'Preset input style' : '프리셋 입력 방식'
-  const presetInputStyleFull4Label =
-    locale === 'en'
-      ? 'Full 4-component wt% input'
-      : '4소재 wt% 직접 입력'
-  const presetInputStyleAutoLabel =
-    locale === 'en'
-      ? 'Auto-calc AM from SE/CNF/PTFE'
-      : 'SE/CNF/PTFE로 AM 자동 계산'
   const sumOkLabel =
     locale === 'en' ? 'WT% sum matches 100%' : 'WT% 합계가 100%입니다'
   const sumAdjustLabel =
@@ -1277,23 +1227,6 @@ function App() {
             <div className="field-grid">
               {currentInput.mode === 'presetMixed' && (
                 <>
-                  <SelectField
-                    label={presetInputStyleLabel}
-                    value={presetInputStyle}
-                    onChange={(next) =>
-                      setPresetInputStyleMode(next as PresetInputStyle)
-                    }
-                    options={[
-                      {
-                        value: 'full_4_input',
-                        label: presetInputStyleFull4Label,
-                      },
-                      {
-                        value: 'auto_am',
-                        label: presetInputStyleAutoLabel,
-                      },
-                    ]}
-                  />
                   <NumberField
                     label={text.amWt}
                     value={currentInput.amWeightFraction}
@@ -1301,7 +1234,6 @@ function App() {
                       setPresetWeightValue('amWeightFraction', next)
                     }
                     percent
-                    readOnly={presetInputStyle === 'auto_am'}
                   />
                   <NumberField
                     label={text.seWt}

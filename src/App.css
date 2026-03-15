@@ -5,7 +5,7 @@
 
 .hero-panel {
   display: grid;
-  grid-template-columns: 1.6fr 0.9fr;
+  grid-template-columns: 1.9fr 0.8fr;
   gap: 24px;
   padding: 28px;
   border: 1px solid var(--border-strong);
@@ -15,6 +15,10 @@
     radial-gradient(circle at top right, rgba(52, 127, 94, 0.16), transparent 38%),
     linear-gradient(135deg, rgba(255, 247, 236, 0.94), rgba(245, 239, 230, 0.9));
   box-shadow: var(--shadow);
+}
+
+.hero-panel h1 {
+  max-width: 20ch;
 }
 
 .eyebrow {
@@ -657,6 +661,10 @@ td code {
   .panel {
     padding: 18px;
     border-radius: 22px;
+  }
+
+  .hero-panel h1 {
+    max-width: 16ch;
   }
 
   .results-grid,

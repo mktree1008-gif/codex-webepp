@@ -38,7 +38,7 @@ describe('App', () => {
     render(<App />)
 
     const amInput = screen.getByLabelText('AM wt%') as HTMLInputElement
-    expect(amInput).toHaveAttribute('readonly')
+    expect(amInput).not.toHaveAttribute('readonly')
     expect(screen.getByText('WT% sum matches 100%')).toBeInTheDocument()
 
     const seInput = screen.getByLabelText(
