@@ -1,0 +1,101 @@
+:root {
+  color: #203127;
+  background:
+    radial-gradient(circle at top, rgba(241, 113, 56, 0.1), transparent 28%),
+    linear-gradient(180deg, #f6efe5 0%, #f1eadf 100%);
+  font-family:
+    'Avenir Next',
+    'Trebuchet MS',
+    'Segoe UI',
+    sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --ink: #203127;
+  --muted: #5d6d63;
+  --accent: #f17138;
+  --accent-dark: #c45524;
+  --border-soft: rgba(34, 46, 38, 0.09);
+  --border-strong: rgba(34, 46, 38, 0.14);
+  --shadow: 0 20px 70px rgba(55, 36, 10, 0.08);
+  --shadow-soft: 0 12px 30px rgba(55, 36, 10, 0.06);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button {
+  font-family: inherit;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-family:
+    'Iowan Old Style',
+    'Palatino Linotype',
+    'Book Antiqua',
+    Georgia,
+    serif;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+h1 {
+  font-size: clamp(2.3rem, 4vw, 4.8rem);
+  max-width: 14ch;
+}
+
+h2 {
+  font-size: clamp(1.2rem, 2vw, 1.65rem);
+}
+
+h3 {
+  font-size: 1.05rem;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+code {
+  padding: 0.16rem 0.35rem;
+  border-radius: 8px;
+  background: rgba(34, 46, 38, 0.06);
+  font-family:
+    'SFMono-Regular',
+    'Cascadia Code',
+    Consolas,
+    monospace;
+  font-size: 0.9em;
+}
+
+#root {
+  min-height: 100vh;
+}
