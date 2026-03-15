@@ -10,6 +10,9 @@ const pagesBasePath =
 export default defineConfig({
   base: pagesBasePath,
   plugins: [react()],
+  build: {
+    target: ['es2018', 'safari13'],
+  },
   test: {
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
