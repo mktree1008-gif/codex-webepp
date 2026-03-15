@@ -6,6 +6,7 @@ import {
   useState,
   type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent,
   type ReactNode,
 } from 'react'
 import './App.css'
@@ -585,6 +586,12 @@ function App() {
 
   const scrollRafRef = useRef<number | null>(null)
   const previousScrollTopRef = useRef(0)
+  const railTrackRef = useRef<HTMLButtonElement | null>(null)
+  const railLongPressTimerRef = useRef<number | null>(null)
+  const railDragActiveRef = useRef(false)
+  const railPointerIdRef = useRef<number | null>(null)
+  const railStartClientYRef = useRef(0)
+  const [isRailDragging, setIsRailDragging] = useState(false)
 
   const deferredInput = useDeferredValue(currentInput)
   const deferredDensities = useDeferredValue(densities)
@@ -1282,6 +1289,15 @@ function App() {
       : scrollNav.direction
   const jumpButtonLabel =
     jumpDirection === 'down' ? jumpToBottomLabel : jumpToTopLabel
+  const jumpToResultsLabel =
+    locale === 'en' ? 'Go to results' : '결과 바로 보기'
+
+  const clearRailLongPressTimer = () => {
+    if (railLongPressTimerRef.current !== null) {
+      window.clearTimeout(railLongPressTimerRef.current)
+      railLongPressTimerRef.current = null
+    }
+  }
 
   const scrollToProgress = (progress: number, behavior: ScrollBehavior) => {
     if (typeof window === 'undefined') {
@@ -1297,15 +1313,34 @@ function App() {
     })
   }
 
+  const scrollToResults = () => {
+    const resultsPanel = document.getElementById('results-panel')
+    if (!resultsPanel) {
+      return
+    }
+    resultsPanel.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  }
+
+  const updateScrollByClientY = (clientY: number) => {
+    const track = railTrackRef.current
+    if (!track) {
+      return
+    }
+    const bounds = track.getBoundingClientRect()
+    const relativeY = clientY - bounds.top
+    const nextProgress = bounds.height > 0 ? relativeY / bounds.height : 0
+    scrollToProgress(nextProgress, 'auto')
+  }
+
   const handleMobileJumpClick = () => {
     scrollToProgress(jumpDirection === 'down' ? 1 : 0, 'smooth')
   }
 
   const handleRailClick = (event: MouseEvent<HTMLButtonElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect()
-    const relativeY = event.clientY - bounds.top
-    const nextProgress = bounds.height > 0 ? relativeY / bounds.height : 0
-    scrollToProgress(nextProgress, 'auto')
+    updateScrollByClientY(event.clientY)
   }
 
   const handleRailKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -1329,6 +1364,83 @@ function App() {
       scrollToProgress(scrollNav.scrollProgress + 0.1, 'smooth')
     }
   }
+
+  const handleThumbPointerDown = (event: PointerEvent<HTMLSpanElement>) => {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const thumbElement = event.currentTarget
+    const pointerId = event.pointerId
+
+    railPointerIdRef.current = pointerId
+    railStartClientYRef.current = event.clientY
+    railDragActiveRef.current = false
+    setIsRailDragging(false)
+    clearRailLongPressTimer()
+
+    railLongPressTimerRef.current = window.setTimeout(() => {
+      railDragActiveRef.current = true
+      setIsRailDragging(true)
+      try {
+        thumbElement.setPointerCapture(pointerId)
+      } catch {
+        // Ignore unsupported capture cases.
+      }
+      updateScrollByClientY(railStartClientYRef.current)
+    }, 300)
+  }
+
+  const handleThumbPointerMove = (event: PointerEvent<HTMLSpanElement>) => {
+    if (!railDragActiveRef.current) {
+      if (Math.abs(event.clientY - railStartClientYRef.current) > 12) {
+        clearRailLongPressTimer()
+      }
+      return
+    }
+
+    event.preventDefault()
+    updateScrollByClientY(event.clientY)
+  }
+
+  const finishThumbDrag = (
+    event: PointerEvent<HTMLSpanElement>,
+    shouldPreventDefault: boolean,
+  ) => {
+    if (shouldPreventDefault) {
+      event.preventDefault()
+    }
+    event.stopPropagation()
+    clearRailLongPressTimer()
+
+    if (railDragActiveRef.current) {
+      const pointerId = railPointerIdRef.current
+      if (
+        pointerId !== null &&
+        event.currentTarget.hasPointerCapture(pointerId)
+      ) {
+        event.currentTarget.releasePointerCapture(pointerId)
+      }
+    }
+
+    railDragActiveRef.current = false
+    railPointerIdRef.current = null
+    setIsRailDragging(false)
+  }
+
+  const handleThumbPointerUp = (event: PointerEvent<HTMLSpanElement>) => {
+    finishThumbDrag(event, railDragActiveRef.current)
+  }
+
+  const handleThumbPointerCancel = (event: PointerEvent<HTMLSpanElement>) => {
+    finishThumbDrag(event, true)
+  }
+
+  useEffect(
+    () => () => {
+      clearRailLongPressTimer()
+    },
+    [],
+  )
 
   return (
     <div className="shell">
@@ -1539,6 +1651,15 @@ function App() {
                 percent
               />
             </div>
+            <div className="case-setup-actions">
+              <button
+                type="button"
+                className="result-jump-button"
+                onClick={scrollToResults}
+              >
+                {jumpToResultsLabel}
+              </button>
+            </div>
           </article>
 
           <article className="panel">
@@ -1722,7 +1843,7 @@ function App() {
         </section>
 
         <section className="content">
-          <article className="panel">
+          <article className="panel" id="results-panel">
             <div className="panel-heading">
               <h2>{text.results}</h2>
             </div>
@@ -1986,13 +2107,21 @@ function App() {
             <button
               type="button"
               className="mobile-scroll-rail-track"
+              ref={railTrackRef}
               onClick={handleRailClick}
               onKeyDown={handleRailKeyDown}
               aria-label={scrollRailLabel}
             >
               <span
-                className="mobile-scroll-rail-thumb"
+                className={`mobile-scroll-rail-thumb ${
+                  isRailDragging ? 'is-dragging' : ''
+                }`}
                 style={{ top: `${scrollNav.scrollProgress * 100}%` }}
+                onPointerDown={handleThumbPointerDown}
+                onPointerMove={handleThumbPointerMove}
+                onPointerUp={handleThumbPointerUp}
+                onPointerCancel={handleThumbPointerCancel}
+                onContextMenu={(event) => event.preventDefault()}
               />
             </button>
           </div>
@@ -2003,7 +2132,7 @@ function App() {
             aria-label={jumpButtonLabel}
             title={jumpButtonLabel}
           >
-            <span aria-hidden>{jumpDirection === 'down' ? '↓' : '↑'}</span>
+            <span aria-hidden>{jumpDirection === 'down' ? '\u2193' : '\u2191'}</span>
           </button>
         </>
       ) : null}

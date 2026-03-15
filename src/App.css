@@ -225,6 +225,34 @@
   color: rgba(31, 41, 55, 0.88);
 }
 
+.case-setup-actions {
+  margin-top: 14px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.result-jump-button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 12px;
+  padding: 0.68rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  background: linear-gradient(135deg, #347f5e, #245944);
+  box-shadow: 0 10px 20px rgba(36, 89, 68, 0.25);
+}
+
+.result-jump-button:hover {
+  transform: translateY(-1px);
+}
+
+.result-jump-button:focus-visible {
+  outline: 2px solid rgba(36, 89, 68, 0.75);
+  outline-offset: 2px;
+}
+
 .sum-status {
   display: flex;
   align-items: center;
@@ -671,6 +699,7 @@ td code {
   background: linear-gradient(180deg, rgba(32, 49, 39, 0.22), rgba(32, 49, 39, 0.1));
   padding: 0;
   cursor: pointer;
+  touch-action: none;
 }
 
 .mobile-scroll-rail-track:focus-visible {
@@ -688,7 +717,15 @@ td code {
   border: 1px solid rgba(255, 255, 255, 0.85);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
   transform: translate(-50%, -50%);
-  pointer-events: none;
+  touch-action: none;
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.mobile-scroll-rail-thumb.is-dragging {
+  transform: translate(-50%, -50%) scale(1.12);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.38);
+  cursor: grabbing;
 }
 
 .mobile-jump-fab {
@@ -782,6 +819,10 @@ td code {
 
   .results-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .case-setup-actions {
+    padding-right: 28px;
   }
 
   .field-grid,
@@ -902,6 +943,10 @@ td code {
 
   .copy-status {
     font-size: 0.84rem;
+  }
+
+  .case-setup-actions {
+    padding-right: 26px;
   }
 
   .mobile-scroll-rail {
