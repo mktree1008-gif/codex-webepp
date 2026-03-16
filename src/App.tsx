@@ -3148,8 +3148,8 @@ function App() {
               <p>{cnfComparisonSectionSubtitle}</p>
             </div>
             <div className="ptfe-comparison-callout">
-              <strong>{cnfAccessibleRuleSpecs[assumptions.accessibleVolumeRule].label[locale]}</strong>
-              <p>{cnfAccessibleRuleSpecs[assumptions.accessibleVolumeRule].description[locale]}</p>
+              <strong>{cnfAccessibleRuleSpecs[deferredAssumptions.accessibleVolumeRule].label[locale]}</strong>
+              <p>{cnfAccessibleRuleSpecs[deferredAssumptions.accessibleVolumeRule].description[locale]}</p>
             </div>
             <div className="table-card">
               <table className="responsive-table">
@@ -3169,14 +3169,14 @@ function App() {
                     <tr
                       key={row.rule}
                       className={
-                        row.rule === assumptions.accessibleVolumeRule
+                        row.rule === deferredAssumptions.accessibleVolumeRule
                           ? 'ptfe-comparison-row-active'
                           : ''
                       }
                     >
                       <td data-label={cnfComparisonModelHeader}>
                         {row.spec.label[locale]}
-                        {row.rule === assumptions.accessibleVolumeRule ? (
+                        {row.rule === deferredAssumptions.accessibleVolumeRule ? (
                           <span className="ptfe-comparison-selected-badge">
                             {locale === 'en' ? 'Selected' : '선택됨'}
                           </span>
