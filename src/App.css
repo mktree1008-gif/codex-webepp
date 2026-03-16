@@ -220,11 +220,16 @@
 }
 
 .ptfe-comparison-jump-button {
-  min-height: 44px;
+  min-height: 38px;
   border: 1px solid rgba(241, 113, 56, 0.55);
-  border-radius: 14px;
-  padding: 0.72rem 0.9rem;
+  border-radius: 12px;
+  width: 33%;
+  min-width: 108px;
+  max-width: 160px;
+  justify-self: start;
+  padding: 0.46rem 0.62rem;
   font: inherit;
+  font-size: 0.86rem;
   font-weight: 700;
   color: #7a3411;
   background: rgba(241, 113, 56, 0.16);

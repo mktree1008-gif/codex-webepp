@@ -2946,7 +2946,119 @@ function App() {
                 </tbody>
               </table>
             </div>
+          </article><article className="panel">
+            <div className="panel-heading">
+              <h2>{text.warnings}</h2>
+            </div>
+            <ul className="warning-list">{renderWarnings(result.warnings)}</ul>
           </article>
+
+          <article className="panel">
+            <div className="panel-heading">
+              <h2>{text.methods}</h2>
+              <p>{text.methodsIntro}</p>
+              <div className="inline-toggle" role="tablist" aria-label={text.equationView}>
+                <button
+                  className={equationView === 'code' ? 'active' : ''}
+                  onClick={() => setEquationView('code')}
+                >
+                  {text.equationCode}
+                </button>
+                <button
+                  className={equationView === 'book' ? 'active' : ''}
+                  onClick={() => setEquationView('book')}
+                >
+                  {text.equationBook}
+                </button>
+              </div>
+            </div>
+            <div className="methods-grid">
+              {equationSections.map((section) => (
+                <EquationBlock
+                  key={section.title}
+                  title={section.title}
+                  description={section.description}
+                  equations={section.equations}
+                  view={equationView}
+                  selectedEquationId={selectedEquation.id}
+                  onSelect={setSelectedEquationId}
+                />
+              ))}
+            </div>
+            <div className="equation-detail-card">
+              <div className="panel-heading">
+                <h3>{text.selectedEquation}</h3>
+              </div>
+              <div className={equationView === 'code' ? 'equation-code equation-detail-line' : 'equation-pretty equation-detail-line'}>
+                {equationView === 'code' ? <code>{selectedEquation.code}</code> : selectedEquation.pretty}
+              </div>
+              <div className="detail-grid">
+                <div>
+                  <h4>{text.whyThisEquation}</h4>
+                  <p>{selectedEquation.summary}</p>
+                </div>
+                <div>
+                  <h4>{text.howToReadIt}</h4>
+                  <p>{selectedEquation.explanation}</p>
+                </div>
+                <div>
+                  <h4>{text.validityConditions}</h4>
+                  <p>{selectedEquation.conditions}</p>
+                </div>
+              </div>
+              {selectedEquation.variables.length > 0 ? (
+                <div className="variables-card">
+                  <h4>{text.variables}</h4>
+                  <div className="variable-list">
+                    {selectedEquation.variables.map((variable) => (
+                      <div key={`${selectedEquation.id}-${variable.symbol}`} className="variable-row">
+                        <code>{variable.symbol}</code>
+                        <span>{variable.meaning}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            {probabilityCurve ? (
+              <div className="curve-wrapper">
+                <div className="panel-heading">
+                  <h3>{text.probabilityCurve}</h3>
+                  <p>{text.probabilityCurveText}</p>
+                </div>
+                <ProbabilityCurve
+                  points={probabilityCurve.points}
+                  currentX={probabilityCurve.currentX}
+                  currentY={probabilityCurve.currentY}
+                  targetX={probabilityCurve.targetX}
+                  targetY={probabilityCurve.targetY}
+                  xLabel={text.cnfWt}
+                  yLabel={text.probability}
+                />
+                <div className="curve-legend">
+                  <span><i className="legend-swatch legend-swatch--current" /> {text.currentPoint}</span>
+                  <span><i className="legend-swatch legend-swatch--target" /> {text.targetPoint}</span>
+                </div>
+              </div>
+            ) : null}
+            <div className="conditions-card">
+              <h3>{text.methodsConditions}</h3>
+              <ul className="conditions-list">
+                <li>{text.methodsCondition1}</li>
+                <li>{text.methodsCondition2}</li>
+                <li>{text.methodsCondition3}</li>
+                <li>{text.methodsCondition4}</li>
+                <li>{text.methodsCondition5}</li>
+                <li>{text.methodsCondition6}</li>
+              </ul>
+            </div>
+            <div className="reference-card">
+              <h3>{text.references}</h3>
+              <p>{text.referencesText}</p>
+            </div>
+          </article>
+
+
 
           <article className="panel" id="ptfe-model-comparison-section">
             <div className="panel-heading">
@@ -3071,117 +3183,7 @@ function App() {
             </div>
           </article>
 
-          <article className="panel">
-            <div className="panel-heading">
-              <h2>{text.warnings}</h2>
-            </div>
-            <ul className="warning-list">{renderWarnings(result.warnings)}</ul>
-          </article>
-
-          <article className="panel">
-            <div className="panel-heading">
-              <h2>{text.methods}</h2>
-              <p>{text.methodsIntro}</p>
-              <div className="inline-toggle" role="tablist" aria-label={text.equationView}>
-                <button
-                  className={equationView === 'code' ? 'active' : ''}
-                  onClick={() => setEquationView('code')}
-                >
-                  {text.equationCode}
-                </button>
-                <button
-                  className={equationView === 'book' ? 'active' : ''}
-                  onClick={() => setEquationView('book')}
-                >
-                  {text.equationBook}
-                </button>
-              </div>
-            </div>
-            <div className="methods-grid">
-              {equationSections.map((section) => (
-                <EquationBlock
-                  key={section.title}
-                  title={section.title}
-                  description={section.description}
-                  equations={section.equations}
-                  view={equationView}
-                  selectedEquationId={selectedEquation.id}
-                  onSelect={setSelectedEquationId}
-                />
-              ))}
-            </div>
-            <div className="equation-detail-card">
-              <div className="panel-heading">
-                <h3>{text.selectedEquation}</h3>
-              </div>
-              <div className={equationView === 'code' ? 'equation-code equation-detail-line' : 'equation-pretty equation-detail-line'}>
-                {equationView === 'code' ? <code>{selectedEquation.code}</code> : selectedEquation.pretty}
-              </div>
-              <div className="detail-grid">
-                <div>
-                  <h4>{text.whyThisEquation}</h4>
-                  <p>{selectedEquation.summary}</p>
-                </div>
-                <div>
-                  <h4>{text.howToReadIt}</h4>
-                  <p>{selectedEquation.explanation}</p>
-                </div>
-                <div>
-                  <h4>{text.validityConditions}</h4>
-                  <p>{selectedEquation.conditions}</p>
-                </div>
-              </div>
-              {selectedEquation.variables.length > 0 ? (
-                <div className="variables-card">
-                  <h4>{text.variables}</h4>
-                  <div className="variable-list">
-                    {selectedEquation.variables.map((variable) => (
-                      <div key={`${selectedEquation.id}-${variable.symbol}`} className="variable-row">
-                        <code>{variable.symbol}</code>
-                        <span>{variable.meaning}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-            {probabilityCurve ? (
-              <div className="curve-wrapper">
-                <div className="panel-heading">
-                  <h3>{text.probabilityCurve}</h3>
-                  <p>{text.probabilityCurveText}</p>
-                </div>
-                <ProbabilityCurve
-                  points={probabilityCurve.points}
-                  currentX={probabilityCurve.currentX}
-                  currentY={probabilityCurve.currentY}
-                  targetX={probabilityCurve.targetX}
-                  targetY={probabilityCurve.targetY}
-                  xLabel={text.cnfWt}
-                  yLabel={text.probability}
-                />
-                <div className="curve-legend">
-                  <span><i className="legend-swatch legend-swatch--current" /> {text.currentPoint}</span>
-                  <span><i className="legend-swatch legend-swatch--target" /> {text.targetPoint}</span>
-                </div>
-              </div>
-            ) : null}
-            <div className="conditions-card">
-              <h3>{text.methodsConditions}</h3>
-              <ul className="conditions-list">
-                <li>{text.methodsCondition1}</li>
-                <li>{text.methodsCondition2}</li>
-                <li>{text.methodsCondition3}</li>
-                <li>{text.methodsCondition4}</li>
-                <li>{text.methodsCondition5}</li>
-                <li>{text.methodsCondition6}</li>
-              </ul>
-            </div>
-            <div className="reference-card">
-              <h3>{text.references}</h3>
-              <p>{text.referencesText}</p>
-            </div>
-          </article>
+          
 
           <article className="panel">
             <div className="panel-heading">
