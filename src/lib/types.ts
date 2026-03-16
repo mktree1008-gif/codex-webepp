@@ -33,6 +33,7 @@ export type GeometryInput = {
   amParticleSizeUm: number
   seParticleSizeUm: number
   additiveSizeUm: number
+  ptfeFibrilSizeUm: number
 }
 
 export type ModelAssumptions = {

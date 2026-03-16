@@ -107,8 +107,10 @@ const deriveThresholds = (
   geometry: GeometryInput,
   assumptions: ModelAssumptions,
   aspectRatio = geometry.cnfAspectRatio,
+  additiveSizeUm = geometry.additiveSizeUm,
 ): ThresholdSet => {
-  const sizeRatio = safeDivide(geometry.amParticleSizeUm, geometry.additiveSizeUm)
+  const matrixParticleSize = (geometry.amParticleSizeUm + geometry.seParticleSizeUm) / 2
+  const sizeRatio = safeDivide(matrixParticleSize, additiveSizeUm)
   const random =
     assumptions.thresholdMode === 'direct'
       ? assumptions.directVthRandom
@@ -385,7 +387,12 @@ const deriveBinder = (
   geometry: GeometryInput,
   assumptions: ModelAssumptions,
 ): BinderResult => {
-  const thresholds = deriveThresholds(geometry, assumptions, geometry.ptfeAspectRatio)
+  const thresholds = deriveThresholds(
+    geometry,
+    assumptions,
+    geometry.ptfeAspectRatio,
+    geometry.ptfeFibrilSizeUm,
+  )
   const solidBasisFractions = toSolidBasisFractions(
     composition.volumeFractions,
     composition.totalSolidVolume,
@@ -458,7 +465,12 @@ const computeTargetProbability = (
   const thresholds =
     target === 'cnf'
       ? deriveThresholds(geometry, assumptions)
-      : deriveThresholds(geometry, assumptions, geometry.ptfeAspectRatio)
+      : deriveThresholds(
+          geometry,
+          assumptions,
+          geometry.ptfeAspectRatio,
+          geometry.ptfeFibrilSizeUm,
+        )
 
   const probabilityVolumes =
     target === 'cnf'
@@ -682,7 +694,7 @@ export const calculateCase = (
       'Percolation thresholds',
       '퍼콜레이션 임계값',
       'Vth,seg = Vth,random / (1 + Rmatrix / Radditive)',
-      `${thresholds.random.toFixed(6)} / (1 + ${safeDivide(geometry.amParticleSizeUm, geometry.additiveSizeUm).toFixed(2)})`,
+      `${thresholds.random.toFixed(6)} / (1 + ${safeDivide((geometry.amParticleSizeUm + geometry.seParticleSizeUm) / 2, geometry.additiveSizeUm).toFixed(2)})`,
       `random ${thresholds.random.toFixed(6)} | segregated ${thresholds.segregated.toFixed(6)}`,
     ),
     createStep(
@@ -724,7 +736,10 @@ export const calculateCase = (
     composition,
     geometry: {
       ...geometry,
-      amToAdditiveRatio: safeDivide(geometry.amParticleSizeUm, geometry.additiveSizeUm),
+      amToAdditiveRatio: safeDivide(
+        (geometry.amParticleSizeUm + geometry.seParticleSizeUm) / 2,
+        geometry.additiveSizeUm,
+      ),
       seToAdditiveRatio: safeDivide(geometry.seParticleSizeUm, geometry.additiveSizeUm),
     },
     thresholds,

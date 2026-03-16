@@ -780,6 +780,86 @@ td code {
   color: var(--muted);
 }
 
+.reverse-note-card {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(52, 127, 94, 0.25);
+  background: rgba(52, 127, 94, 0.08);
+}
+
+.reverse-note-card strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.reverse-note-card p {
+  color: var(--muted);
+}
+
+.reverse-controls-grid {
+  margin-top: 6px;
+}
+
+.reverse-result-heading {
+  margin-top: 18px;
+}
+
+.reverse-empty-state {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(241, 113, 56, 0.26);
+  background: rgba(241, 113, 56, 0.1);
+}
+
+.reverse-empty-state p {
+  color: #7a3411;
+}
+
+.reverse-warning-list {
+  margin-top: 14px;
+}
+
+.reverse-phase-wrapper {
+  margin-top: 16px;
+}
+
+.phase-map-card {
+  overflow-x: auto;
+}
+
+.phase-map-svg {
+  width: 100%;
+  min-width: 680px;
+  height: auto;
+}
+
+.phase-map-cell {
+  stroke: rgba(255, 255, 255, 0.12);
+  stroke-width: 0.5;
+}
+
+.phase-map-cell--feasible {
+  stroke: rgba(31, 81, 61, 0.38);
+  stroke-width: 0.7;
+}
+
+.phase-map-contour {
+  fill: none;
+  stroke: #1f513d;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 4 3;
+}
+
+.phase-map-legend {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .curve-legend span {
   display: inline-flex;
   align-items: center;
@@ -1182,6 +1262,10 @@ td code {
   }
 
   .curve-svg {
+    min-width: 0;
+  }
+
+  .phase-map-svg {
     min-width: 0;
   }
 

@@ -2,6 +2,7 @@ import {
   startTransition,
   useDeferredValue,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -716,6 +717,408 @@ function ProbabilityCurve({
   )
 }
 
+type ReverseSeMode = 'fixed' | 'optimize'
+
+type ReverseDesignConfig = {
+  fixedPtfeWeightFraction: number
+  targetProbability: number
+  porosity: number
+  seMode: ReverseSeMode
+  fixedSeWeightFraction: number
+  seRangeMin: number
+  seRangeMax: number
+  seStep: number
+  ptfeRangeMin: number
+  ptfeRangeMax: number
+  cnfRangeMin: number
+  cnfRangeMax: number
+  cnfStep: number
+}
+
+type ReverseDesignCandidate = {
+  amWeightFraction: number
+  seWeightFraction: number
+  cnfWeightFraction: number
+  ptfeWeightFraction: number
+  additiveFraction: number
+  margin: number
+  calculation: CalculationResult
+}
+
+type ReverseDesignResult = {
+  best: ReverseDesignCandidate | null
+  evaluatedCount: number
+  feasibleCount: number
+  fixedPtfeApplied: number
+  warnings: string[]
+}
+
+type ReversePhasePoint = {
+  cnfWeightFraction: number
+  ptfeWeightFraction: number
+  probability: number | null
+  feasible: boolean
+}
+
+type ReversePhaseMapData = {
+  points: ReversePhasePoint[]
+  cnfValues: number[]
+  ptfeValues: number[]
+  contour: Array<{ cnfWeightFraction: number; ptfeWeightFraction: number }>
+}
+
+const createRange = (min: number, max: number, step: number): number[] => {
+  const safeStep = Math.max(step, 1e-6)
+  const start = Math.min(min, max)
+  const end = Math.max(min, max)
+  const values: number[] = []
+  let current = start
+  let guard = 0
+  while (current <= end + 1e-12 && guard < 20000) {
+    values.push(Number(current.toFixed(6)))
+    current += safeStep
+    guard += 1
+  }
+  if (values.length === 0 || Math.abs(values[values.length - 1] - end) > 1e-6) {
+    values.push(Number(end.toFixed(6)))
+  }
+  return values
+}
+
+const buildReverseDesignCase = (
+  id: string,
+  config: ReverseDesignConfig,
+  weights: {
+    am: number
+    se: number
+    cnf: number
+    ptfe: number
+  },
+): CaseInput => ({
+  id,
+  label: {
+    en: 'Reverse design candidate',
+    ko: '역설계 후보',
+  },
+  mode: 'presetMixed',
+  porosity: config.porosity,
+  amWeightFraction: weights.am,
+  seWeightFraction: weights.se,
+  cnfWeightFraction: weights.cnf,
+  ptfeWeightFraction: weights.ptfe,
+})
+
+const runReverseDesign = (
+  config: ReverseDesignConfig,
+  densities: DensitySet,
+  geometry: GeometryInput,
+  assumptions: ModelAssumptions,
+): ReverseDesignResult => {
+  const warnings: string[] = []
+  const fixedPtfeApplied = clamp(
+    config.fixedPtfeWeightFraction,
+    config.ptfeRangeMin,
+    config.ptfeRangeMax,
+  )
+
+  if (Math.abs(fixedPtfeApplied - config.fixedPtfeWeightFraction) > 1e-8) {
+    warnings.push('PTFE input was clamped to the configured practical PTFE range.')
+  }
+
+  const forcedAssumptions: ModelAssumptions = {
+    ...assumptions,
+    targetProbability: config.targetProbability,
+    networkModel: 'segregated',
+    accessibleVolumeRule: 'exclude_am_se',
+    binderAccessibleVolumeRule: 'full_electrode',
+  }
+
+  const seValues =
+    config.seMode === 'fixed'
+      ? [config.fixedSeWeightFraction]
+      : createRange(config.seRangeMin, config.seRangeMax, config.seStep)
+  const cnfValues = createRange(config.cnfRangeMin, config.cnfRangeMax, config.cnfStep)
+
+  let best: ReverseDesignCandidate | null = null
+  let evaluatedCount = 0
+  let feasibleCount = 0
+
+  seValues.forEach((seWeightFraction) => {
+    cnfValues.forEach((cnfWeightFraction) => {
+      const amWeightFraction = 1 - seWeightFraction - cnfWeightFraction - fixedPtfeApplied
+      if (amWeightFraction < 0) {
+        return
+      }
+
+      const candidateInput = buildReverseDesignCase('reverse-design-candidate', config, {
+        am: amWeightFraction,
+        se: seWeightFraction,
+        cnf: cnfWeightFraction,
+        ptfe: fixedPtfeApplied,
+      })
+
+      const candidateCalculation = calculateCase(
+        candidateInput,
+        densities,
+        geometry,
+        forcedAssumptions,
+      )
+      evaluatedCount += 1
+
+      if (candidateCalculation.probability.pCapped < config.targetProbability) {
+        return
+      }
+
+      feasibleCount += 1
+      const candidate: ReverseDesignCandidate = {
+        amWeightFraction,
+        seWeightFraction,
+        cnfWeightFraction,
+        ptfeWeightFraction: fixedPtfeApplied,
+        additiveFraction: cnfWeightFraction + fixedPtfeApplied,
+        margin: candidateCalculation.probability.diff,
+        calculation: candidateCalculation,
+      }
+
+      if (!best) {
+        best = candidate
+        return
+      }
+
+      const additiveDelta = candidate.additiveFraction - best.additiveFraction
+      if (additiveDelta < -1e-9) {
+        best = candidate
+        return
+      }
+      if (Math.abs(additiveDelta) <= 1e-9) {
+        if (candidate.cnfWeightFraction < best.cnfWeightFraction - 1e-9) {
+          best = candidate
+          return
+        }
+        if (
+          Math.abs(candidate.cnfWeightFraction - best.cnfWeightFraction) <= 1e-9 &&
+          candidate.margin > best.margin + 1e-9
+        ) {
+          best = candidate
+        }
+      }
+    })
+  })
+
+  if (!best) {
+    warnings.push('No feasible candidate was found within the configured CNF/PTFE/SE ranges.')
+  }
+
+  return {
+    best,
+    evaluatedCount,
+    feasibleCount,
+    fixedPtfeApplied,
+    warnings,
+  }
+}
+
+const buildReversePhaseMap = (
+  config: ReverseDesignConfig,
+  seWeightFraction: number,
+  densities: DensitySet,
+  geometry: GeometryInput,
+  assumptions: ModelAssumptions,
+): ReversePhaseMapData => {
+  const forcedAssumptions: ModelAssumptions = {
+    ...assumptions,
+    targetProbability: config.targetProbability,
+    networkModel: 'segregated',
+    accessibleVolumeRule: 'exclude_am_se',
+    binderAccessibleVolumeRule: 'full_electrode',
+  }
+
+  const cnfStep = Math.max((config.cnfRangeMax - config.cnfRangeMin) / 24, 1e-4)
+  const ptfeStep = Math.max((config.ptfeRangeMax - config.ptfeRangeMin) / 20, 1e-4)
+  const cnfValues = createRange(config.cnfRangeMin, config.cnfRangeMax, cnfStep)
+  const ptfeValues = createRange(config.ptfeRangeMin, config.ptfeRangeMax, ptfeStep)
+
+  const points: ReversePhasePoint[] = []
+  const contour: Array<{ cnfWeightFraction: number; ptfeWeightFraction: number }> = []
+
+  ptfeValues.forEach((ptfeWeightFraction) => {
+    let contourCandidate: number | null = null
+    cnfValues.forEach((cnfWeightFraction) => {
+      const amWeightFraction = 1 - seWeightFraction - cnfWeightFraction - ptfeWeightFraction
+      if (amWeightFraction < 0) {
+        points.push({
+          cnfWeightFraction,
+          ptfeWeightFraction,
+          probability: null,
+          feasible: false,
+        })
+        return
+      }
+
+      const caseInput = buildReverseDesignCase('reverse-map-candidate', config, {
+        am: amWeightFraction,
+        se: seWeightFraction,
+        cnf: cnfWeightFraction,
+        ptfe: ptfeWeightFraction,
+      })
+      const calculation = calculateCase(caseInput, densities, geometry, forcedAssumptions)
+      const probability = calculation.probability.pCapped
+      const feasible = probability >= config.targetProbability
+      points.push({
+        cnfWeightFraction,
+        ptfeWeightFraction,
+        probability,
+        feasible,
+      })
+      if (feasible && contourCandidate === null) {
+        contourCandidate = cnfWeightFraction
+      }
+    })
+    if (contourCandidate !== null) {
+      contour.push({
+        cnfWeightFraction: contourCandidate,
+        ptfeWeightFraction,
+      })
+    }
+  })
+
+  return {
+    points,
+    cnfValues,
+    ptfeValues,
+    contour,
+  }
+}
+
+const phaseMapColor = (probability: number | null, targetProbability: number) => {
+  if (probability === null) {
+    return 'rgba(34, 46, 38, 0.08)'
+  }
+  const clamped = clamp(probability, 0, 1)
+  if (clamped >= targetProbability) {
+    return `rgba(52, 127, 94, ${0.2 + 0.6 * clamped})`
+  }
+  return `rgba(241, 113, 56, ${0.14 + 0.5 * clamped})`
+}
+
+function ReversePhaseMap({
+  data,
+  targetProbability,
+  locale,
+}: {
+  data: ReversePhaseMapData
+  targetProbability: number
+  locale: Locale
+}) {
+  const width = 760
+  const height = 360
+  const margin = { top: 24, right: 18, bottom: 52, left: 66 }
+  const plotWidth = width - margin.left - margin.right
+  const plotHeight = height - margin.top - margin.bottom
+  const cnfMin = data.cnfValues[0] ?? 0
+  const cnfMax = data.cnfValues[data.cnfValues.length - 1] ?? 1
+  const ptfeMin = data.ptfeValues[0] ?? 0
+  const ptfeMax = data.ptfeValues[data.ptfeValues.length - 1] ?? 1
+  const xScale = (value: number) =>
+    margin.left + ((value - cnfMin) / Math.max(cnfMax - cnfMin, 1e-9)) * plotWidth
+  const yScale = (value: number) =>
+    margin.top + (1 - (value - ptfeMin) / Math.max(ptfeMax - ptfeMin, 1e-9)) * plotHeight
+  const cellWidth = plotWidth / Math.max(data.cnfValues.length, 1)
+  const cellHeight = plotHeight / Math.max(data.ptfeValues.length, 1)
+  const contourPath = data.contour
+    .map((point, index) =>
+      `${index === 0 ? 'M' : 'L'} ${xScale(point.cnfWeightFraction)} ${yScale(point.ptfeWeightFraction)}`,
+    )
+    .join(' ')
+
+  const legendText =
+    locale === 'en'
+      ? `Green region: P ≥ ${fmtPercent(targetProbability)}`
+      : `초록 영역: P ≥ ${fmtPercent(targetProbability)}`
+
+  return (
+    <div className="phase-map-card">
+      <svg viewBox={`0 0 ${width} ${height}`} className="phase-map-svg" role="img">
+        {[0, 0.25, 0.5, 0.75, 1].map((tick) => {
+          const y = margin.top + (1 - tick) * plotHeight
+          return (
+            <g key={tick}>
+              <line
+                x1={margin.left}
+                x2={width - margin.right}
+                y1={y}
+                y2={y}
+                className="curve-grid"
+              />
+            </g>
+          )
+        })}
+        {data.points.map((point) => (
+          <g key={`${point.cnfWeightFraction}-${point.ptfeWeightFraction}`}>
+            <rect
+              x={xScale(point.cnfWeightFraction) - cellWidth / 2}
+              y={yScale(point.ptfeWeightFraction) - cellHeight / 2}
+              width={cellWidth + 0.4}
+              height={cellHeight + 0.4}
+              fill={phaseMapColor(point.probability, targetProbability)}
+              className={point.feasible ? 'phase-map-cell--feasible' : 'phase-map-cell'}
+            />
+          </g>
+        ))}
+        {contourPath ? <path d={contourPath} className="phase-map-contour" /> : null}
+        <line
+          x1={margin.left}
+          x2={width - margin.right}
+          y1={height - margin.bottom}
+          y2={height - margin.bottom}
+          className="curve-axis"
+        />
+        <line
+          x1={margin.left}
+          x2={margin.left}
+          y1={margin.top}
+          y2={height - margin.bottom}
+          className="curve-axis"
+        />
+        {[cnfMin, (cnfMin + cnfMax) / 2, cnfMax].map((tick) => (
+          <text
+            key={`x-${tick}`}
+            x={xScale(tick)}
+            y={height - margin.bottom + 18}
+            textAnchor="middle"
+            className="curve-axis-label"
+          >
+            {fmtPercent(tick)}
+          </text>
+        ))}
+        {[ptfeMin, (ptfeMin + ptfeMax) / 2, ptfeMax].map((tick) => (
+          <text
+            key={`y-${tick}`}
+            x={margin.left - 10}
+            y={yScale(tick) + 4}
+            textAnchor="end"
+            className="curve-axis-label"
+          >
+            {fmtPercent(tick)}
+          </text>
+        ))}
+        <text x={width / 2} y={height - 12} className="curve-axis-title">
+          {locale === 'en' ? 'CNF wt%' : 'CNF wt%'}
+        </text>
+        <text
+          x={18}
+          y={height / 2}
+          className="curve-axis-title"
+          transform={`rotate(-90 18 ${height / 2})`}
+        >
+          {locale === 'en' ? 'PTFE wt%' : 'PTFE wt%'}
+        </text>
+      </svg>
+      <p className="phase-map-legend">{legendText}</p>
+    </div>
+  )
+}
+
 const cloneCase = (input: CaseInput): CaseInput => JSON.parse(JSON.stringify(input))
 
 type ScrollDirection = 'up' | 'down'
@@ -745,6 +1148,21 @@ function App() {
   const [equationView, setEquationView] = useState<EquationView>('book')
   const [transportTab, setTransportTab] = useState<TransportTab>('ec')
   const [ptfeModelMode, setPtfeModelMode] = useState<PtfeModelMode>('fibril_segregated')
+  const [reverseDesignConfig, setReverseDesignConfig] = useState<ReverseDesignConfig>({
+    fixedPtfeWeightFraction: 0.02,
+    targetProbability: 0.9999,
+    porosity: 0.09,
+    seMode: 'fixed',
+    fixedSeWeightFraction: 0.24,
+    seRangeMin: 0.21,
+    seRangeMax: 0.35,
+    seStep: 0.01,
+    ptfeRangeMin: 0.005,
+    ptfeRangeMax: 0.02,
+    cnfRangeMin: 0.002,
+    cnfRangeMax: 0.02,
+    cnfStep: 0.0005,
+  })
   const [selectedEquationId, setSelectedEquationId] = useState('workflow-solid')
   const [scrollNav, setScrollNav] = useState<ScrollNavState>({
     scrollTop: 0,
@@ -899,6 +1317,74 @@ function App() {
     locale === 'en' ? 'PTFE probability' : 'PTFE 확률'
   const ptfeComparisonConductivityHeader =
     locale === 'en' ? 'PTFE conductivity' : 'PTFE 전도도'
+  const reverseDesignTitle =
+    locale === 'en'
+      ? 'Reverse design optimizer (PTFE-fixed)'
+      : '역설계 최적화 (PTFE 고정)'
+  const reverseDesignSubtitle =
+    locale === 'en'
+      ? 'Fix a practical PTFE level, then find the minimum CNF and recommended AM/SE composition that still reaches the target percolation probability.'
+      : '현실적인 PTFE 수준을 먼저 고정한 뒤, 목표 퍼콜레이션 확률을 만족하는 최소 CNF와 AM/SE 권장 조성을 역설계합니다.'
+  const reverseFixedPtfeLabel =
+    locale === 'en' ? 'Fixed PTFE wt%' : '고정 PTFE wt%'
+  const reverseTargetPLabel =
+    locale === 'en' ? 'Reverse-design target probability' : '역설계 목표 확률'
+  const reversePorosityLabel =
+    locale === 'en' ? 'Reverse-design porosity' : '역설계 기공도'
+  const reverseSeModeLabel =
+    locale === 'en' ? 'SE handling mode' : 'SE 처리 모드'
+  const reverseFixedSeLabel =
+    locale === 'en' ? 'Fixed SE wt%' : '고정 SE wt%'
+  const reverseSeMinLabel =
+    locale === 'en' ? 'SE min wt% (optimize mode)' : 'SE 최소 wt% (최적화 모드)'
+  const reverseSeMaxLabel =
+    locale === 'en' ? 'SE max wt% (optimize mode)' : 'SE 최대 wt% (최적화 모드)'
+  const reverseSeStepLabel =
+    locale === 'en' ? 'SE scan step' : 'SE 탐색 간격'
+  const reversePtfeMinLabel =
+    locale === 'en' ? 'PTFE practical min wt%' : 'PTFE 실용 최소 wt%'
+  const reversePtfeMaxLabel =
+    locale === 'en' ? 'PTFE practical max wt%' : 'PTFE 실용 최대 wt%'
+  const reverseCnfMinLabel =
+    locale === 'en' ? 'CNF practical min wt%' : 'CNF 실용 최소 wt%'
+  const reverseCnfMaxLabel =
+    locale === 'en' ? 'CNF practical max wt%' : 'CNF 실용 최대 wt%'
+  const reverseCnfStepLabel =
+    locale === 'en' ? 'CNF scan step' : 'CNF 탐색 간격'
+  const reverseRecommendedLabel =
+    locale === 'en' ? 'Recommended composition' : '권장 조성'
+  const reverseAdditiveObjectiveLabel =
+    locale === 'en' ? 'Objective: minimize CNF + PTFE' : '목표: CNF + PTFE 최소화'
+  const reverseMarginLabel =
+    locale === 'en' ? 'Percolation margin (Veff - Vth)' : '퍼콜레이션 여유도 (Veff - Vth)'
+  const reverseFeasibleLabel =
+    locale === 'en' ? 'Feasible candidates in range' : '범위 내 만족 후보 수'
+  const reverseEvaluatedLabel =
+    locale === 'en' ? 'Evaluated candidates' : '평가한 후보 수'
+  const reverseModelLockNote =
+    locale === 'en'
+      ? 'Reverse-design CNF model is locked to Fiber + Segregated with CNF accessible-volume rule = Exclude AM + SE. PTFE network is evaluated as Fibril + Segregated.'
+      : '역설계 CNF 모델은 Fiber + Segregated, CNF 가용부피 규칙은 Exclude AM + SE로 고정됩니다. PTFE 네트워크는 Fibril + Segregated 기준으로 해석합니다.'
+  const reverseNoSolutionMessage =
+    locale === 'en'
+      ? 'No feasible composition was found in the configured practical ranges. Widen CNF/SE ranges or lower target P.'
+      : '설정한 실용 범위 안에서 만족하는 조성을 찾지 못했습니다. CNF/SE 범위를 넓히거나 목표 P를 완화해 주세요.'
+  const reverseFixedModeOption =
+    locale === 'en' ? 'Fix SE wt%' : 'SE wt% 고정'
+  const reverseOptimizeModeOption =
+    locale === 'en' ? 'Optimize SE within range' : 'SE 범위 최적화'
+  const reverseMapTitle =
+    locale === 'en'
+      ? 'CNF vs PTFE phase map (percolation probability)'
+      : 'CNF vs PTFE 상도 (퍼콜레이션 확률)'
+  const reverseMapSubtitle =
+    locale === 'en'
+      ? 'Contour line shows the approximate boundary where P reaches the target.'
+      : '등고선은 P가 목표값에 도달하는 경계(근사)를 나타냅니다.'
+  const cnfDiameterLabel =
+    locale === 'en' ? 'CNF diameter / size (µm)' : 'CNF 직경 / 크기 (µm)'
+  const ptfeFibrilDiameterLabel =
+    locale === 'en' ? 'PTFE fibril diameter (µm)' : 'PTFE fibril 직경 (µm)'
 
   const equationSections: EquationSection[] = [
     {
@@ -1642,6 +2128,37 @@ function App() {
     ionic,
     recommendation: buildDualRecommendation(entry, ionic),
   }))
+  const reverseDesignResult = useMemo(
+    () =>
+      runReverseDesign(
+        reverseDesignConfig,
+        deferredDensities,
+        deferredGeometry,
+        deferredAssumptions,
+      ),
+    [reverseDesignConfig, deferredDensities, deferredGeometry, deferredAssumptions],
+  )
+  const reverseMapSeWeightFraction =
+    reverseDesignConfig.seMode === 'fixed'
+      ? reverseDesignConfig.fixedSeWeightFraction
+      : (reverseDesignResult.best?.seWeightFraction ?? reverseDesignConfig.fixedSeWeightFraction)
+  const reversePhaseMap = useMemo(
+    () =>
+      buildReversePhaseMap(
+        reverseDesignConfig,
+        reverseMapSeWeightFraction,
+        deferredDensities,
+        deferredGeometry,
+        deferredAssumptions,
+      ),
+    [
+      reverseDesignConfig,
+      reverseMapSeWeightFraction,
+      deferredDensities,
+      deferredGeometry,
+      deferredAssumptions,
+    ],
+  )
   const selectedEquation =
     allEquations.find((equation) => equation.id === selectedEquationId) ?? allEquations[0]
   const probabilityCurve =
@@ -1793,6 +2310,13 @@ function App() {
     value: ModelAssumptions[K],
   ) => {
     setAssumptions((previous) => ({ ...previous, [key]: value }))
+  }
+
+  const updateReverseDesign = <K extends keyof ReverseDesignConfig>(
+    key: K,
+    value: ReverseDesignConfig[K],
+  ) => {
+    setReverseDesignConfig((previous) => ({ ...previous, [key]: value }))
   }
 
   const handleCopySummary = async () => {
@@ -2550,9 +3074,14 @@ function App() {
                 onChange={(next) => updateGeometry('seParticleSizeUm', next)}
               />
               <NumberField
-                label={text.additiveSize}
+                label={cnfDiameterLabel}
                 value={geometry.additiveSizeUm}
                 onChange={(next) => updateGeometry('additiveSizeUm', next)}
+              />
+              <NumberField
+                label={ptfeFibrilDiameterLabel}
+                value={geometry.ptfeFibrilSizeUm}
+                onChange={(next) => updateGeometry('ptfeFibrilSizeUm', next)}
               />
             </div>
           </article>
@@ -2890,6 +3419,195 @@ function App() {
               </div>
             </div>
           </article>
+
+          {transportTab === 'ec' ? (
+            <article className="panel">
+              <div className="panel-heading">
+                <h2>{reverseDesignTitle}</h2>
+                <p>{reverseDesignSubtitle}</p>
+              </div>
+              <div className="reverse-note-card">
+                <strong>{reverseAdditiveObjectiveLabel}</strong>
+                <p>{reverseModelLockNote}</p>
+              </div>
+              <div className="field-grid reverse-controls-grid">
+                <NumberField
+                  label={reverseFixedPtfeLabel}
+                  value={reverseDesignConfig.fixedPtfeWeightFraction}
+                  onChange={(next) => updateReverseDesign('fixedPtfeWeightFraction', next)}
+                  percent
+                />
+                <NumberField
+                  label={reverseTargetPLabel}
+                  value={reverseDesignConfig.targetProbability}
+                  onChange={(next) => updateReverseDesign('targetProbability', next)}
+                  percent
+                />
+                <NumberField
+                  label={reversePorosityLabel}
+                  value={reverseDesignConfig.porosity}
+                  onChange={(next) => updateReverseDesign('porosity', next)}
+                  percent
+                />
+                <SelectField
+                  label={reverseSeModeLabel}
+                  value={reverseDesignConfig.seMode}
+                  onChange={(next) => updateReverseDesign('seMode', next as ReverseSeMode)}
+                  options={[
+                    { value: 'fixed', label: reverseFixedModeOption },
+                    { value: 'optimize', label: reverseOptimizeModeOption },
+                  ]}
+                />
+                {reverseDesignConfig.seMode === 'fixed' ? (
+                  <NumberField
+                    label={reverseFixedSeLabel}
+                    value={reverseDesignConfig.fixedSeWeightFraction}
+                    onChange={(next) => updateReverseDesign('fixedSeWeightFraction', next)}
+                    percent
+                  />
+                ) : (
+                  <>
+                    <NumberField
+                      label={reverseSeMinLabel}
+                      value={reverseDesignConfig.seRangeMin}
+                      onChange={(next) => updateReverseDesign('seRangeMin', next)}
+                      percent
+                    />
+                    <NumberField
+                      label={reverseSeMaxLabel}
+                      value={reverseDesignConfig.seRangeMax}
+                      onChange={(next) => updateReverseDesign('seRangeMax', next)}
+                      percent
+                    />
+                    <NumberField
+                      label={reverseSeStepLabel}
+                      value={reverseDesignConfig.seStep}
+                      onChange={(next) => updateReverseDesign('seStep', next)}
+                      percent
+                    />
+                  </>
+                )}
+                <NumberField
+                  label={reversePtfeMinLabel}
+                  value={reverseDesignConfig.ptfeRangeMin}
+                  onChange={(next) => updateReverseDesign('ptfeRangeMin', next)}
+                  percent
+                />
+                <NumberField
+                  label={reversePtfeMaxLabel}
+                  value={reverseDesignConfig.ptfeRangeMax}
+                  onChange={(next) => updateReverseDesign('ptfeRangeMax', next)}
+                  percent
+                />
+                <NumberField
+                  label={reverseCnfMinLabel}
+                  value={reverseDesignConfig.cnfRangeMin}
+                  onChange={(next) => updateReverseDesign('cnfRangeMin', next)}
+                  percent
+                />
+                <NumberField
+                  label={reverseCnfMaxLabel}
+                  value={reverseDesignConfig.cnfRangeMax}
+                  onChange={(next) => updateReverseDesign('cnfRangeMax', next)}
+                  percent
+                />
+                <NumberField
+                  label={reverseCnfStepLabel}
+                  value={reverseDesignConfig.cnfStep}
+                  onChange={(next) => updateReverseDesign('cnfStep', next)}
+                  percent
+                />
+              </div>
+
+              {reverseDesignResult.best ? (
+                <>
+                  <div className="panel-heading reverse-result-heading">
+                    <h3>{reverseRecommendedLabel}</h3>
+                    <p>
+                      {reverseFeasibleLabel}: {reverseDesignResult.feasibleCount} / {reverseDesignResult.evaluatedCount}
+                    </p>
+                  </div>
+                  <div className="results-grid">
+                    <ResultCard
+                      label={locale === 'en' ? 'Recommended AM wt%' : '권장 AM wt%'}
+                      value={fmtPercent(reverseDesignResult.best.amWeightFraction)}
+                    />
+                    <ResultCard
+                      label={locale === 'en' ? 'Recommended SE wt%' : '권장 SE wt%'}
+                      value={fmtPercent(reverseDesignResult.best.seWeightFraction)}
+                    />
+                    <ResultCard
+                      label={locale === 'en' ? 'Recommended CNF wt%' : '권장 CNF wt%'}
+                      value={fmtPercent(reverseDesignResult.best.cnfWeightFraction)}
+                      tone="accent"
+                    />
+                    <ResultCard
+                      label={locale === 'en' ? 'Fixed PTFE wt% (applied)' : '고정 PTFE wt% (적용)'}
+                      value={fmtPercent(reverseDesignResult.fixedPtfeApplied)}
+                      tone="accent"
+                    />
+                    <ResultCard
+                      label={text.probability}
+                      value={fmtPercent(reverseDesignResult.best.calculation.probability.pCapped)}
+                      tone="accent"
+                    />
+                    <ResultCard
+                      label={text.conductivity}
+                      value={`${fmtNumber(reverseDesignResult.best.calculation.probability.sigma, 2)} S/m`}
+                      tone="accent"
+                    />
+                    <ResultCard
+                      label={text.veff}
+                      value={fmtNumber(reverseDesignResult.best.calculation.probability.veff, 5)}
+                    />
+                    <ResultCard
+                      label={reverseMarginLabel}
+                      value={fmtNumber(reverseDesignResult.best.margin, 6)}
+                    />
+                    <ResultCard
+                      label={locale === 'en' ? 'Minimum additives (CNF + PTFE)' : '최소 첨가제 합 (CNF + PTFE)'}
+                      value={fmtPercent(reverseDesignResult.best.additiveFraction)}
+                    />
+                    <ResultCard
+                      label={reverseEvaluatedLabel}
+                      value={`${reverseDesignResult.evaluatedCount}`}
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="reverse-empty-state">
+                  <p>{reverseNoSolutionMessage}</p>
+                </div>
+              )}
+
+              {reverseDesignResult.warnings.length > 0 ? (
+                <ul className="warning-list reverse-warning-list">
+                  {reverseDesignResult.warnings.map((warning) => (
+                    <li key={warning} className="warning warning--info">
+                      {locale === 'en'
+                        ? warning
+                        : warning ===
+                            'PTFE input was clamped to the configured practical PTFE range.'
+                          ? '입력 PTFE 값이 설정된 실용 범위로 자동 보정되었습니다.'
+                          : '설정한 CNF/PTFE/SE 범위 내에서 만족하는 후보를 찾지 못했습니다.'}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              <div className="curve-wrapper reverse-phase-wrapper">
+                <div className="panel-heading">
+                  <h3>{reverseMapTitle}</h3>
+                  <p>{reverseMapSubtitle}</p>
+                </div>
+                <ReversePhaseMap
+                  data={reversePhaseMap}
+                  targetProbability={reverseDesignConfig.targetProbability}
+                  locale={locale}
+                />
+              </div>
+            </article>
+          ) : null}
 
           <article className="panel">
             <div className="panel-heading">

@@ -19,6 +19,7 @@ export const defaultGeometry: GeometryInput = {
   amParticleSizeUm: 5,
   seParticleSizeUm: 5,
   additiveSizeUm: 0.1,
+  ptfeFibrilSizeUm: 0.1,
 }
 
 export const defaultAccessibleRule: AccessibleVolumeRule = 'exclude_am'
