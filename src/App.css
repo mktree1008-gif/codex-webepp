@@ -727,7 +727,7 @@ td code {
 }
 
 .mobile-scroll-rail-thumb.is-dragging {
-  transform: translate(-50%, -50%) scale(1.16);
+  transform: translate(-50%, -50%) scale(1.2);
   box-shadow: 0 6px 14px rgba(0, 0, 0, 0.42);
   cursor: grabbing;
 }

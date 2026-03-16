@@ -565,6 +565,8 @@ type ScrollNavState = {
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value))
 
+const RAIL_LONG_PRESS_MS = 500
+
 function App() {
   const [locale, setLocale] = useState<Locale>('en')
   const [currentInput, setCurrentInput] = useState<CaseInput>(presetCases[0].input)
@@ -1398,7 +1400,7 @@ function App() {
         // Ignore unsupported capture cases.
       }
       updateScrollByClientY(railStartClientYRef.current)
-    }, 300)
+    }, RAIL_LONG_PRESS_MS)
   }
 
   const handleThumbPointerMove = (event: PointerEvent<HTMLSpanElement>) => {
