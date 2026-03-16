@@ -317,6 +317,122 @@ type WalkthroughStep = {
   value: string
 }
 
+type TransportTab = 'ec' | 'ic' | 'ecic'
+
+type IBranchResult = {
+  vAvailable: number
+  veff: number
+  diff: number
+  pRaw: number
+  pCapped: number
+  sigma: number
+  thresholds: {
+    random: number
+    segregated: number
+    active: number
+  }
+  inverse: {
+    minSeWeightFraction: number | null
+    minSeVolFraction: number | null
+  }
+}
+
+type DualRecommendation = {
+  feasible: boolean
+  amWeightFraction: number
+  seWeightFraction: number
+  cnfWeightFraction: number
+  ptfeWeightFraction: number
+  ecProbability: number
+  icProbability: number
+}
+
+type PtfeModelMode =
+  | 'fibril_segregated'
+  | 'particle_random'
+  | 'fibril_random'
+  | 'fibril_am_se_excluded'
+
+type PtfeModelSpec = {
+  label: Record<Locale, string>
+  short: Record<Locale, string>
+  description: Record<Locale, string>
+  networkModel: ModelAssumptions['networkModel']
+  binderRule: AccessibleVolumeRule
+  vthScale: number
+}
+
+const ptfeModelSpecs: Record<PtfeModelMode, PtfeModelSpec> = {
+  fibril_segregated: {
+    label: {
+      en: 'Fibril + Segregated',
+      ko: 'Fibril + Segregated',
+    },
+    short: {
+      en: 'Default',
+      ko: '기본',
+    },
+    description: {
+      en: 'PTFE is treated as fibrils that connect along a segregated network path with full-electrode PTFE access.',
+      ko: 'PTFE를 fibril로 보고, 전극 골격 경로를 따라 segregated 네트워크를 형성한다고 가정합니다.',
+    },
+    networkModel: 'segregated',
+    binderRule: 'full_electrode',
+    vthScale: 1,
+  },
+  particle_random: {
+    label: {
+      en: 'Particle + Random',
+      ko: 'Particle + Random',
+    },
+    short: {
+      en: 'Conservative',
+      ko: '보수적',
+    },
+    description: {
+      en: 'PTFE is treated as particle-like random dispersion. This branch applies PTFE Vth,ideal = 3 × base to be conservative.',
+      ko: 'PTFE를 입자형 무작위 분산으로 가정한 보수 모델입니다. PTFE Vth,ideal을 기본값 대비 3배로 적용합니다.',
+    },
+    networkModel: 'random',
+    binderRule: 'full_electrode',
+    vthScale: 3,
+  },
+  fibril_random: {
+    label: {
+      en: 'Fibril + Random',
+      ko: 'Fibril + Random',
+    },
+    short: {
+      en: 'Middle',
+      ko: '중간',
+    },
+    description: {
+      en: 'PTFE keeps fibril geometry, but the network is random without segregated concentration gain.',
+      ko: 'PTFE 형상은 fibril로 유지하되, 네트워크는 random으로 가정합니다.',
+    },
+    networkModel: 'random',
+    binderRule: 'full_electrode',
+    vthScale: 1,
+  },
+  fibril_am_se_excluded: {
+    label: {
+      en: 'Fibril + AM+SE Excluded',
+      ko: 'Fibril + AM+SE Excluded',
+    },
+    short: {
+      en: 'Reduced space',
+      ko: '축소 공간',
+    },
+    description: {
+      en: 'PTFE keeps fibril geometry and uses only the AM+SE excluded interstitial space for accessible volume.',
+      ko: 'PTFE 형상은 fibril로 유지하고, AM+SE 제외 공간만 PTFE 가용부피로 사용하는 모델입니다.',
+    },
+    networkModel: 'segregated',
+    binderRule: 'exclude_am_se',
+    vthScale: 1,
+  },
+}
+
 type FieldProps = {
   label: string
   value: number
@@ -585,6 +701,8 @@ function App() {
   const [assumptions, setAssumptions] = useState<ModelAssumptions>(defaultModelAssumptions)
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [equationView, setEquationView] = useState<EquationView>('book')
+  const [transportTab, setTransportTab] = useState<TransportTab>('ec')
+  const [ptfeModelMode, setPtfeModelMode] = useState<PtfeModelMode>('fibril_segregated')
   const [selectedEquationId, setSelectedEquationId] = useState('workflow-solid')
   const [scrollNav, setScrollNav] = useState<ScrollNavState>({
     scrollTop: 0,
@@ -688,6 +806,41 @@ function App() {
   }, [])
 
   const text = textByLocale[locale]
+  const transportTabLabel =
+    locale === 'en'
+      ? { ec: 'EC', ic: 'IC', ecic: 'EC + IC' }
+      : { ec: '전자전도(EC)', ic: '이온전도(IC)', ecic: '통합(EC+IC)' }
+  const ionicResultsLabel =
+    locale === 'en'
+      ? 'Ionic transport results (SE network)'
+      : '이온전도 결과 (SE 네트워크)'
+  const dualResultsLabel =
+    locale === 'en'
+      ? 'Integrated EC + IC recommendation'
+      : 'EC + IC 통합 추천 결과'
+  const minSeWtLabel =
+    locale === 'en' ? 'Minimum SE(wt%) for target P' : '목표 P를 위한 최소 SE(wt%)'
+  const minSeVolLabel =
+    locale === 'en' ? 'Minimum SE vol%' : '최소 SE vol%'
+
+  const ptfeModelLabel = locale === 'en' ? 'PTFE model selector' : 'PTFE 모델 선택'
+  const ptfeComparisonJumpLabel = locale === 'en' ? '*Comparison' : '*비교 보기'
+  const ptfeComparisonSectionTitle =
+    locale === 'en'
+      ? 'PTFE model comparison (why minima differ)'
+      : 'PTFE 모델 비교 (최소분율이 달라지는 이유)'
+  const ptfeComparisonSectionSubtitle =
+    locale === 'en'
+      ? 'The same chemistry can yield different minimum PTFE values when network shape/space assumptions change.'
+      : '동일 조성이라도 PTFE 네트워크 형상/가용공간 가정이 바뀌면 최소 PTFE 결과가 달라집니다.'
+  const ptfeComparisonModelHeader = locale === 'en' ? 'PTFE model' : 'PTFE 모델'
+  const ptfeComparisonAssumptionHeader =
+    locale === 'en' ? 'Assumption summary' : '가정 요약'
+  const ptfeComparisonProbabilityHeader =
+    locale === 'en' ? 'PTFE probability' : 'PTFE 확률'
+  const ptfeComparisonConductivityHeader =
+    locale === 'en' ? 'PTFE conductivity' : 'PTFE 전도도'
+
   const equationSections: EquationSection[] = [
     {
       title: text.methodsWorkflow,
@@ -1162,6 +1315,146 @@ function App() {
     },
   ]
   const allEquations = equationSections.flatMap((section) => section.equations)
+
+  const buildIonicBranch = (calculation: CalculationResult): IBranchResult => {
+    const computeIonicProbability = (target: CalculationResult) => {
+      const solidVolume = Math.max(target.composition.totalSolidVolume, 1e-9)
+      const seSolidFraction = target.composition.volumeFractions.se / solidVolume
+      const amToSeRatio = clamp(
+        deferredGeometry.amParticleSizeUm / Math.max(deferredGeometry.seParticleSizeUm, 1e-9),
+        0,
+        1e6,
+      )
+      const randomThreshold =
+        deferredAssumptions.thresholdMode === 'direct'
+          ? deferredAssumptions.directVthRandom
+          : deferredAssumptions.vthIdeal
+      const segregatedThreshold = randomThreshold / (1 + amToSeRatio)
+      const activeThreshold =
+        deferredAssumptions.networkModel === 'segregated'
+          ? segregatedThreshold
+          : randomThreshold
+      const diff = Math.max(0, seSolidFraction - activeThreshold)
+      const pRaw = deferredAssumptions.p0 * Math.pow(diff, deferredAssumptions.beta)
+      const pCapped = Math.min(1, pRaw)
+      const sigma = deferredAssumptions.sigma0 * Math.pow(diff, deferredAssumptions.t)
+
+      return {
+        seSolidFraction,
+        diff,
+        pRaw,
+        pCapped,
+        sigma,
+        randomThreshold,
+        segregatedThreshold,
+        activeThreshold,
+      }
+    }
+
+    const ionicCore = computeIonicProbability(calculation)
+
+    const solveMinimumSe = (): {
+      minSeWeightFraction: number | null
+      minSeVolFraction: number | null
+    } => {
+      const template = {
+        seWeightFraction: calculation.composition.weightFractions.se,
+        cnfWeightFraction: calculation.composition.weightFractions.cnf,
+        ptfeWeightFraction: calculation.composition.weightFractions.ptfe,
+      }
+      const targetProbability = deferredAssumptions.targetProbability
+      const upperBound =
+        1 - template.cnfWeightFraction - template.ptfeWeightFraction - 1e-6
+      if (upperBound <= 0) {
+        return { minSeWeightFraction: null, minSeVolFraction: null }
+      }
+
+      const evaluateSeProbability = (seWeightFraction: number) => {
+        const candidate = calculateCase(
+          {
+            id: `${calculation.input.id}-se-inverse`,
+            label: calculation.input.label,
+            mode: 'presetMixed',
+            porosity: calculation.input.porosity,
+            seWeightFraction,
+            cnfWeightFraction: template.cnfWeightFraction,
+            ptfeWeightFraction: template.ptfeWeightFraction,
+            amWeightFraction: Math.max(
+              0,
+              1 - seWeightFraction - template.cnfWeightFraction - template.ptfeWeightFraction,
+            ),
+          },
+          deferredDensities,
+          deferredGeometry,
+          deferredAssumptions,
+        )
+        const ionic = computeIonicProbability(candidate)
+        return { probability: ionic.pCapped, candidate }
+      }
+
+      const hiResult = evaluateSeProbability(upperBound)
+      if (hiResult.probability < targetProbability) {
+        return { minSeWeightFraction: null, minSeVolFraction: null }
+      }
+
+      let low = 0
+      let high = upperBound
+      for (let iteration = 0; iteration < 70; iteration += 1) {
+        const mid = (low + high) / 2
+        const { probability } = evaluateSeProbability(mid)
+        if (probability >= targetProbability) {
+          high = mid
+        } else {
+          low = mid
+        }
+      }
+
+      const solved = evaluateSeProbability(high).candidate
+      return {
+        minSeWeightFraction: solved.composition.weightFractions.se,
+        minSeVolFraction: solved.composition.volumeFractions.se,
+      }
+    }
+
+    return {
+      vAvailable: 1,
+      veff: ionicCore.seSolidFraction,
+      diff: ionicCore.diff,
+      pRaw: ionicCore.pRaw,
+      pCapped: ionicCore.pCapped,
+      sigma: ionicCore.sigma,
+      thresholds: {
+        random: ionicCore.randomThreshold,
+        segregated: ionicCore.segregatedThreshold,
+        active: ionicCore.activeThreshold,
+      },
+      inverse: solveMinimumSe(),
+    }
+  }
+
+  const withPtfeModelAssumptions = (
+    base: ModelAssumptions,
+    mode: PtfeModelMode,
+  ): ModelAssumptions => {
+    const spec = ptfeModelSpecs[mode]
+    return {
+      ...base,
+      networkModel: spec.networkModel,
+      binderAccessibleVolumeRule: spec.binderRule,
+      vthIdeal: base.vthIdeal * spec.vthScale,
+      directVthRandom: base.directVthRandom * spec.vthScale,
+      directVthSegregated: base.directVthSegregated * spec.vthScale,
+    }
+  }
+
+  const evaluatePtfeModelCase = (input: CaseInput, mode: PtfeModelMode) =>
+    calculateCase(
+      input,
+      deferredDensities,
+      deferredGeometry,
+      withPtfeModelAssumptions(deferredAssumptions, mode),
+    )
+
   const result = calculateCase(
     deferredInput,
     deferredDensities,
@@ -1171,6 +1464,104 @@ function App() {
   const comparison = presetCases.map((preset) =>
     calculateCase(preset.input, deferredDensities, deferredGeometry, deferredAssumptions),
   )
+  const selectedPtfeModelSpec = ptfeModelSpecs[ptfeModelMode]
+  const selectedPtfeModelResult = evaluatePtfeModelCase(deferredInput, ptfeModelMode)
+  const displayedMinPtfeWeightFraction = selectedPtfeModelResult.inverse.minPtfeWeightFraction
+  const displayedMinPtfeVolFraction = selectedPtfeModelResult.inverse.minPtfeVolFraction
+  const summaryResult: CalculationResult = {
+    ...result,
+    inverse: {
+      ...result.inverse,
+      minPtfeWeightFraction: displayedMinPtfeWeightFraction,
+      minPtfeVolFraction: displayedMinPtfeVolFraction,
+    },
+    binder: selectedPtfeModelResult.binder,
+  }
+  const ptfeComparisonByCaseId = new Map(
+    presetCases.map((preset) => [preset.id, evaluatePtfeModelCase(preset.input, ptfeModelMode)] as const),
+  )
+  const ptfeModelComparisonRows = (Object.keys(ptfeModelSpecs) as PtfeModelMode[]).map(
+    (mode) => {
+      const spec = ptfeModelSpecs[mode]
+      const modelResult = evaluatePtfeModelCase(deferredInput, mode)
+      return {
+        mode,
+        spec,
+        probability: modelResult.binder.probability.pCapped,
+        conductivity: modelResult.binder.probability.sigma,
+        minPtfeWt: modelResult.inverse.minPtfeWeightFraction,
+        minPtfeVol: modelResult.inverse.minPtfeVolFraction,
+      }
+    },
+  )
+  const ionicResult = buildIonicBranch(result)
+  const ionicComparison = comparison.map((entry) => ({
+    entry,
+    ionic: buildIonicBranch(entry),
+  }))
+
+  const buildDualRecommendation = (
+    ecCalculation: CalculationResult,
+    icCalculation: IBranchResult,
+  ): DualRecommendation => {
+    const recommendedCnf =
+      ecCalculation.inverse.minCnfWeightFraction ??
+      ecCalculation.composition.weightFractions.cnf
+    const recommendedSe =
+      icCalculation.inverse.minSeWeightFraction ??
+      ecCalculation.composition.weightFractions.se
+    const fixedPtfe = ecCalculation.composition.weightFractions.ptfe
+    const recommendedAm = 1 - recommendedSe - recommendedCnf - fixedPtfe
+
+    if (recommendedAm <= 0) {
+      return {
+        feasible: false,
+        amWeightFraction: Math.max(recommendedAm, 0),
+        seWeightFraction: recommendedSe,
+        cnfWeightFraction: recommendedCnf,
+        ptfeWeightFraction: fixedPtfe,
+        ecProbability: 0,
+        icProbability: 0,
+      }
+    }
+
+    const recommendedCase = calculateCase(
+      {
+        id: `${ecCalculation.input.id}-ecic-recommended`,
+        label: ecCalculation.input.label,
+        mode: 'presetMixed',
+        porosity: ecCalculation.input.porosity,
+        amWeightFraction: recommendedAm,
+        seWeightFraction: recommendedSe,
+        cnfWeightFraction: recommendedCnf,
+        ptfeWeightFraction: fixedPtfe,
+      },
+      deferredDensities,
+      deferredGeometry,
+      deferredAssumptions,
+    )
+    const recommendedIonic = buildIonicBranch(recommendedCase)
+    const target = deferredAssumptions.targetProbability
+
+    return {
+      feasible:
+        recommendedCase.probability.pCapped >= target &&
+        recommendedIonic.pCapped >= target,
+      amWeightFraction: recommendedAm,
+      seWeightFraction: recommendedSe,
+      cnfWeightFraction: recommendedCnf,
+      ptfeWeightFraction: fixedPtfe,
+      ecProbability: recommendedCase.probability.pCapped,
+      icProbability: recommendedIonic.pCapped,
+    }
+  }
+
+  const dualRecommendation = buildDualRecommendation(result, ionicResult)
+  const dualComparison = ionicComparison.map(({ entry, ionic }) => ({
+    entry,
+    ionic,
+    recommendation: buildDualRecommendation(entry, ionic),
+  }))
   const selectedEquation =
     allEquations.find((equation) => equation.id === selectedEquationId) ?? allEquations[0]
   const probabilityCurve =
@@ -1326,7 +1717,7 @@ function App() {
 
   const handleCopySummary = async () => {
     try {
-      await navigator.clipboard.writeText(buildBilingualSummary(result))
+      await navigator.clipboard.writeText(buildBilingualSummary(summaryResult))
       setCopyStatus('copied')
     } catch {
       setCopyStatus('failed')
@@ -1425,6 +1816,17 @@ function App() {
       return
     }
     logicPanel.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  }
+
+  const scrollToPtfeComparison = () => {
+    const panel = document.getElementById('ptfe-model-comparison-section')
+    if (!panel) {
+      return
+    }
+    panel.scrollIntoView({
       behavior: 'smooth',
       block: 'start',
     })
@@ -1548,7 +1950,10 @@ function App() {
     finishThumbDrag(event, true)
   }
 
-  const buildWalkthroughSteps = (calculation: CalculationResult): WalkthroughStep[] => {
+  const buildWalkthroughSteps = (
+    calculation: CalculationResult,
+    minPtfeWeightFraction: number | null,
+  ): WalkthroughStep[] => {
     const cnfVol = calculation.composition.volumeFractions.cnf
     const cnfWt = calculation.composition.weightFractions.cnf
     const diff = Math.max(calculation.probability.diff, 0)
@@ -1557,9 +1962,9 @@ function App() {
         ? text.unreachable
         : fmtPercent(calculation.inverse.minCnfWeightFraction)
     const minimumPtfeWt =
-      calculation.inverse.minPtfeWeightFraction === null
+      minPtfeWeightFraction === null
         ? text.unreachable
-        : fmtPercent(calculation.inverse.minPtfeWeightFraction)
+        : fmtPercent(minPtfeWeightFraction)
 
     return [
       {
@@ -1632,11 +2037,138 @@ function App() {
     ]
   }
 
+  const buildIonicWalkthroughSteps = (
+    calculation: CalculationResult,
+    ionic: IBranchResult,
+  ): WalkthroughStep[] => {
+    const minimumSeWt =
+      ionic.inverse.minSeWeightFraction === null
+        ? text.unreachable
+        : fmtPercent(ionic.inverse.minSeWeightFraction)
+
+    return [
+      {
+        title: locale === 'en' ? 'Step 1 · Convert composition to solid basis' : '1단계 · 고형분 기준 변환',
+        description:
+          locale === 'en'
+            ? 'SE network is evaluated on solid skeleton basis (excluding porosity).'
+            : 'SE 네트워크는 기공을 제외한 고형분 골격 기준으로 평가합니다.',
+        equation: 'VSE,solid = VSE / (1 - ε)',
+        value: `VSE ${fmtPercent(calculation.composition.volumeFractions.se)} → VSE,solid ${fmtNumber(
+          ionic.veff,
+          5,
+        )}`,
+      },
+      {
+        title: locale === 'en' ? 'Step 2 · Set ionic threshold' : '2단계 · 이온 임계치 설정',
+        description:
+          locale === 'en'
+            ? 'Use threshold mode and AM/SE size ratio to get active ionic threshold.'
+            : '임계치 모드와 AM/SE 입경비로 활성 이온 임계치를 계산합니다.',
+        equation: 'Vth,seg,ion = Vth,random / (1 + DAM / DSE)',
+        value: `Vth,active ${fmtNumber(ionic.thresholds.active, 6)} (random ${fmtNumber(
+          ionic.thresholds.random,
+          6,
+        )}, seg ${fmtNumber(ionic.thresholds.segregated, 6)})`,
+      },
+      {
+        title: locale === 'en' ? 'Step 3 · Ionic probability and conductivity' : '3단계 · 이온 확률/전도도',
+        description:
+          locale === 'en'
+            ? 'Apply the same percolation scaling law to ionic branch.'
+            : '동일한 퍼콜레이션 스케일링 식을 이온 분기에 적용합니다.',
+        equation: 'Pion = min(P0·max(Veff,ion - Vth,ion, 0)^β, 1),  σion = σ0·Δ^t',
+        value: `P ${fmtPercent(ionic.pCapped)} (raw ${fmtNumber(ionic.pRaw, 4)}), σ ${fmtNumber(
+          ionic.sigma,
+          2,
+        )} S/m`,
+      },
+      {
+        title: locale === 'en' ? 'Step 4 · Inverse minimum SE' : '4단계 · 최소 SE 역산',
+        description:
+          locale === 'en'
+            ? 'Back-solve minimum SE(wt%) to satisfy target probability.'
+            : '목표 확률을 만족하는 최소 SE(wt%)를 역산합니다.',
+        equation: 'min wSE such that Pion(wSE) ≥ Ptarget',
+        value: `${locale === 'en' ? 'Target' : '목표'} ${fmtPercent(
+          deferredAssumptions.targetProbability,
+        )} → ${minimumSeWt}`,
+      },
+    ]
+  }
+
+  const buildCombinedWalkthroughSteps = (
+    calculation: CalculationResult,
+    ionic: IBranchResult,
+    recommendation: DualRecommendation,
+  ): WalkthroughStep[] => [
+    {
+      title: locale === 'en' ? 'Step 1 · Compute EC and IC independently' : '1단계 · EC/IC 독립 계산',
+      description:
+        locale === 'en'
+          ? 'Evaluate EC on CNF network and IC on SE network under the same composition.'
+          : '동일 조성에서 CNF 기반 EC와 SE 기반 IC를 각각 계산합니다.',
+      equation: 'PEC = f(CNF),  PIC = f(SE)',
+      value: `EC ${fmtPercent(calculation.probability.pCapped)}, IC ${fmtPercent(ionic.pCapped)}`,
+    },
+    {
+      title: locale === 'en' ? 'Step 2 · Inverse minima for dual target' : '2단계 · 이중 타깃 최소치 역산',
+      description:
+        locale === 'en'
+          ? 'Back-solve minimum CNF and minimum SE for the same target probability.'
+          : '같은 목표 확률에 대해 최소 CNF와 최소 SE를 각각 역산합니다.',
+      equation: 'min wCNF, min wSE such that PEC ≥ Ptarget and PIC ≥ Ptarget',
+      value: `CNF ${fmtPercent(calculation.inverse.minCnfWeightFraction ?? 0)}, SE ${fmtPercent(
+        ionic.inverse.minSeWeightFraction ?? 0,
+      )}`,
+    },
+    {
+      title: locale === 'en' ? 'Step 3 · Recommend EC+IC composition' : '3단계 · EC+IC 추천 조성',
+      description:
+        locale === 'en'
+          ? 'Combine both minima, adjust AM by mass balance, and check both targets.'
+          : '두 최소치를 결합하고 질량수지로 AM을 보정한 뒤 두 타깃 만족 여부를 확인합니다.',
+      equation: 'wAM = 1 - wSE - wCNF - wPTFE',
+      value: recommendation.feasible
+        ? `AM ${fmtPercent(recommendation.amWeightFraction)}, SE ${fmtPercent(
+            recommendation.seWeightFraction,
+          )}, CNF ${fmtPercent(recommendation.cnfWeightFraction)}, PTFE ${fmtPercent(
+            recommendation.ptfeWeightFraction,
+          )}`
+        : text.unreachable,
+    },
+  ]
+
   const selectedWalkthroughCase = {
     key: result.input.id,
     label: result.input.label[locale],
     calculation: result,
   }
+  const selectedWalkthroughSteps =
+    transportTab === 'ec'
+      ? buildWalkthroughSteps(
+          selectedWalkthroughCase.calculation,
+          displayedMinPtfeWeightFraction,
+        )
+      : transportTab === 'ic'
+        ? buildIonicWalkthroughSteps(selectedWalkthroughCase.calculation, ionicResult)
+        : buildCombinedWalkthroughSteps(
+            selectedWalkthroughCase.calculation,
+            ionicResult,
+            dualRecommendation,
+          )
+  const walkthroughModelText =
+    transportTab === 'ec'
+      ? `${networkModelLabels[deferredAssumptions.networkModel][locale]} 쨌 ${
+          accessibleRuleLabels[deferredAssumptions.accessibleVolumeRule][locale]
+        } 쨌 ${thresholdModeLabels[deferredAssumptions.thresholdMode][locale]}`
+      : transportTab === 'ic'
+        ? locale === 'en'
+          ? `${networkModelLabels[deferredAssumptions.networkModel][locale]} · solid-basis SE network`
+          : `${networkModelLabels[deferredAssumptions.networkModel][locale]} · 고형분 기준 SE 네트워크`
+        : locale === 'en'
+          ? 'Dual target: EC(CNF) + IC(SE)'
+          : '이중 타깃: EC(CNF) + IC(SE)'
   const selectedCaseTypeLabel =
     result.input.id === customCaseTemplate.id ? currentCaseTitle : presetCaseTitle
 
@@ -1679,6 +2211,19 @@ function App() {
           </p>
         </div>
       </header>
+
+      <nav className="transport-tabs" aria-label="Transport model tabs">
+        {(['ec', 'ic', 'ecic'] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            className={transportTab === tab ? 'active' : ''}
+            onClick={() => setTransportTab(tab)}
+          >
+            {transportTabLabel[tab]}
+          </button>
+        ))}
+      </nav>
 
       <main className="workspace">
         <section className="sidebar">
@@ -1997,6 +2542,22 @@ function App() {
                   label: accessibleRuleLabels[rule][locale],
                 }))}
               />
+              <SelectField
+                label={ptfeModelLabel}
+                value={ptfeModelMode}
+                onChange={(next) => setPtfeModelMode(next as PtfeModelMode)}
+                options={(Object.keys(ptfeModelSpecs) as PtfeModelMode[]).map((mode) => ({
+                  value: mode,
+                  label: ptfeModelSpecs[mode].label[locale],
+                }))}
+              />
+              <button
+                type="button"
+                className="ptfe-comparison-jump-button"
+                onClick={scrollToPtfeComparison}
+              >
+                {ptfeComparisonJumpLabel}
+              </button>
               <NumberField
                 label={text.beta}
                 value={assumptions.beta}
@@ -2050,7 +2611,13 @@ function App() {
         <section className="content">
           <article className="panel" id="results-panel">
             <div className="panel-heading panel-heading--row">
-              <h2>{text.results}</h2>
+              <h2>
+                {transportTab === 'ec'
+                  ? text.results
+                  : transportTab === 'ic'
+                    ? ionicResultsLabel
+                    : dualResultsLabel}
+              </h2>
               <button
                 type="button"
                 className="logic-jump-button"
@@ -2060,44 +2627,133 @@ function App() {
               </button>
             </div>
             <div className="results-grid">
-              <ResultCard label={text.probability} value={fmtPercent(result.probability.pCapped)} tone="accent" />
-              <ResultCard label={text.probabilityRaw} value={fmtNumber(result.probability.pRaw, 4)} />
-              <ResultCard label={text.conductivity} value={`${fmtNumber(result.probability.sigma, 2)} S/m`} />
-              <ResultCard label={text.vAvailable} value={fmtNumber(result.probability.vAvailable, 4)} />
-              <ResultCard label={text.veff} value={fmtNumber(result.probability.veff, 5)} />
-              <ResultCard label={text.activeThreshold} value={fmtNumber(result.thresholds.active, 6)} />
-              <ResultCard
-                label={text.minCnfWt}
-                value={
-                  result.inverse.minCnfWeightFraction === null
-                    ? text.unreachable
-                    : fmtPercent(result.inverse.minCnfWeightFraction)
-                }
-              />
-              <ResultCard
-                label={text.minCnfVol}
-                value={
-                  result.inverse.minCnfVolFraction === null
-                    ? text.unreachable
-                    : fmtPercent(result.inverse.minCnfVolFraction)
-                }
-              />
-              <ResultCard
-                label={minPtfeWtLabel}
-                value={
-                  result.inverse.minPtfeWeightFraction === null
-                    ? text.unreachable
-                    : fmtPercent(result.inverse.minPtfeWeightFraction)
-                }
-              />
-              <ResultCard
-                label={minPtfeVolLabel}
-                value={
-                  result.inverse.minPtfeVolFraction === null
-                    ? text.unreachable
-                    : fmtPercent(result.inverse.minPtfeVolFraction)
-                }
-              />
+              {transportTab === 'ec' ? (
+                <>
+                  <ResultCard label={text.probability} value={fmtPercent(result.probability.pCapped)} tone="accent" />
+                  <ResultCard label={text.probabilityRaw} value={fmtNumber(result.probability.pRaw, 4)} />
+                  <ResultCard
+                    label={text.conductivity}
+                    value={`${fmtNumber(result.probability.sigma, 2)} S/m`}
+                    tone="accent"
+                  />
+                  <ResultCard label={text.vAvailable} value={fmtNumber(result.probability.vAvailable, 4)} />
+                  <ResultCard label={text.veff} value={fmtNumber(result.probability.veff, 5)} />
+                  <ResultCard label={text.activeThreshold} value={fmtNumber(result.thresholds.active, 6)} />
+                  <ResultCard
+                    label={text.minCnfWt}
+                    value={
+                      result.inverse.minCnfWeightFraction === null
+                        ? text.unreachable
+                        : fmtPercent(result.inverse.minCnfWeightFraction)
+                    }
+                    tone="accent"
+                  />
+                  <ResultCard
+                    label={text.minCnfVol}
+                    value={
+                      result.inverse.minCnfVolFraction === null
+                        ? text.unreachable
+                        : fmtPercent(result.inverse.minCnfVolFraction)
+                    }
+                  />
+                  <ResultCard
+                    label={minPtfeWtLabel}
+                    value={
+                      displayedMinPtfeWeightFraction === null
+                        ? text.unreachable
+                        : fmtPercent(displayedMinPtfeWeightFraction)
+                    }
+                    tone="accent"
+                  />
+                  <ResultCard
+                    label={minPtfeVolLabel}
+                    value={
+                      displayedMinPtfeVolFraction === null
+                        ? text.unreachable
+                        : fmtPercent(displayedMinPtfeVolFraction)
+                    }
+                  />
+                </>
+              ) : null}
+              {transportTab === 'ic' ? (
+                <>
+                  <ResultCard label={text.probability} value={fmtPercent(ionicResult.pCapped)} tone="accent" />
+                  <ResultCard label={text.probabilityRaw} value={fmtNumber(ionicResult.pRaw, 4)} />
+                  <ResultCard label={text.conductivity} value={`${fmtNumber(ionicResult.sigma, 2)} S/m`} />
+                  <ResultCard label={text.vAvailable} value={fmtNumber(ionicResult.vAvailable, 4)} />
+                  <ResultCard label={text.veff} value={fmtNumber(ionicResult.veff, 5)} />
+                  <ResultCard label={text.activeThreshold} value={fmtNumber(ionicResult.thresholds.active, 6)} />
+                  <ResultCard
+                    label={minSeWtLabel}
+                    value={
+                      ionicResult.inverse.minSeWeightFraction === null
+                        ? text.unreachable
+                        : fmtPercent(ionicResult.inverse.minSeWeightFraction)
+                    }
+                  />
+                  <ResultCard
+                    label={minSeVolLabel}
+                    value={
+                      ionicResult.inverse.minSeVolFraction === null
+                        ? text.unreachable
+                        : fmtPercent(ionicResult.inverse.minSeVolFraction)
+                    }
+                  />
+                </>
+              ) : null}
+              {transportTab === 'ecic' ? (
+                <>
+                  <ResultCard label="EC probability" value={fmtPercent(result.probability.pCapped)} tone="accent" />
+                  <ResultCard label="IC probability" value={fmtPercent(ionicResult.pCapped)} tone="accent" />
+                  <ResultCard
+                    label="EC conductivity"
+                    value={`${fmtNumber(result.probability.sigma, 2)} S/m`}
+                    tone="accent"
+                  />
+                  <ResultCard label="IC conductivity" value={`${fmtNumber(ionicResult.sigma, 2)} S/m`} />
+                  <ResultCard
+                    label={text.minCnfWt}
+                    value={
+                      result.inverse.minCnfWeightFraction === null
+                        ? text.unreachable
+                        : fmtPercent(result.inverse.minCnfWeightFraction)
+                    }
+                    tone="accent"
+                  />
+                  <ResultCard
+                    label={minSeWtLabel}
+                    value={
+                      ionicResult.inverse.minSeWeightFraction === null
+                        ? text.unreachable
+                        : fmtPercent(ionicResult.inverse.minSeWeightFraction)
+                    }
+                  />
+                  <ResultCard
+                    label={locale === 'en' ? 'Recommended AM wt%' : '추천 AM wt%'}
+                    value={fmtPercent(dualRecommendation.amWeightFraction)}
+                  />
+                  <ResultCard
+                    label={locale === 'en' ? 'Recommended SE wt%' : '추천 SE wt%'}
+                    value={fmtPercent(dualRecommendation.seWeightFraction)}
+                  />
+                  <ResultCard
+                    label={locale === 'en' ? 'Recommended CNF wt%' : '추천 CNF wt%'}
+                    value={fmtPercent(dualRecommendation.cnfWeightFraction)}
+                  />
+                  <ResultCard
+                    label={locale === 'en' ? 'Dual-target check' : '이중 타깃 만족 여부'}
+                    value={
+                      dualRecommendation.feasible
+                        ? locale === 'en'
+                          ? 'Pass'
+                          : '만족'
+                        : locale === 'en'
+                          ? 'Needs adjustment'
+                          : '추가 조정 필요'
+                    }
+                  />
+                </>
+              ) : null}
             </div>
 
             <div className="tables">
@@ -2132,18 +2788,21 @@ function App() {
 
               <div className="table-card">
                 <h3>{text.binder}</h3>
+                <p className="ptfe-binder-model-note">
+                  {selectedPtfeModelSpec.label[locale]} ({selectedPtfeModelSpec.short[locale]})
+                </p>
                 <div className="mini-stats">
                   <div>
                     <span>{text.binderProbability}</span>
-                    <strong>{fmtPercent(result.binder.probability.pCapped)}</strong>
+                    <strong>{fmtPercent(selectedPtfeModelResult.binder.probability.pCapped)}</strong>
                   </div>
                   <div>
                     <span>{text.binderVeff}</span>
-                    <strong>{fmtNumber(result.binder.probability.veff, 5)}</strong>
+                    <strong>{fmtNumber(selectedPtfeModelResult.binder.probability.veff, 5)}</strong>
                   </div>
                   <div>
                     <span>{text.binderThreshold}</span>
-                    <strong>{fmtNumber(result.binder.thresholds.active, 6)}</strong>
+                    <strong>{fmtNumber(selectedPtfeModelResult.binder.thresholds.active, 6)}</strong>
                   </div>
                 </div>
               </div>
@@ -2152,51 +2811,263 @@ function App() {
 
           <article className="panel">
             <div className="panel-heading">
-              <h2>{text.comparison}</h2>
+              <h2>
+                {transportTab === 'ec'
+                  ? text.comparison
+                  : transportTab === 'ic'
+                    ? locale === 'en'
+                      ? 'IC preset comparison'
+                      : 'IC 프리셋 비교'
+                    : locale === 'en'
+                      ? 'EC + IC preset comparison'
+                      : 'EC + IC 프리셋 비교'}
+              </h2>
+            </div>
+            <div className="table-card">
+              <table className="responsive-table">
+                <thead>
+                  {transportTab === 'ec' ? (
+                    <tr>
+                      <th>{text.caseName}</th>
+                      <th>{text.probability}</th>
+                      <th>{text.conductivity}</th>
+                      <th>{text.minCnfWt}</th>
+                      <th>{text.minCnfVol}</th>
+                      <th>{minPtfeWtLabel}</th>
+                      <th>{minPtfeVolLabel}</th>
+                    </tr>
+                  ) : null}
+                  {transportTab === 'ic' ? (
+                    <tr>
+                      <th>{text.caseName}</th>
+                      <th>{text.probability}</th>
+                      <th>{text.conductivity}</th>
+                      <th>{minSeWtLabel}</th>
+                      <th>{minSeVolLabel}</th>
+                    </tr>
+                  ) : null}
+                  {transportTab === 'ecic' ? (
+                    <tr>
+                      <th>{text.caseName}</th>
+                      <th>EC P</th>
+                      <th>IC P</th>
+                      <th>EC σ</th>
+                      <th>IC σ</th>
+                      <th>{text.minCnfWt}</th>
+                      <th>{minSeWtLabel}</th>
+                      <th>{locale === 'en' ? 'Recommendation' : '추천 조성'}</th>
+                    </tr>
+                  ) : null}
+                </thead>
+                <tbody>
+                  {transportTab === 'ec'
+                    ? comparison.map((entry) => {
+                        const ptfeEntry = ptfeComparisonByCaseId.get(entry.input.id)
+                        return (
+                          <tr key={entry.input.id}>
+                            <td data-label={text.caseName}>{entry.input.label[locale]}</td>
+                            <td data-label={text.probability}>{fmtPercent(entry.probability.pCapped)}</td>
+                            <td data-label={text.conductivity}>{fmtNumber(entry.probability.sigma, 2)} S/m</td>
+                            <td data-label={text.minCnfWt}>
+                              {entry.inverse.minCnfWeightFraction === null
+                                ? text.unreachable
+                                : fmtPercent(entry.inverse.minCnfWeightFraction)}
+                            </td>
+                            <td data-label={text.minCnfVol}>
+                              {entry.inverse.minCnfVolFraction === null
+                                ? text.unreachable
+                                : fmtPercent(entry.inverse.minCnfVolFraction)}
+                            </td>
+                            <td data-label={minPtfeWtLabel}>
+                              {ptfeEntry?.inverse.minPtfeWeightFraction === null ||
+                              ptfeEntry?.inverse.minPtfeWeightFraction === undefined
+                                ? text.unreachable
+                                : fmtPercent(ptfeEntry.inverse.minPtfeWeightFraction)}
+                            </td>
+                            <td data-label={minPtfeVolLabel}>
+                              {ptfeEntry?.inverse.minPtfeVolFraction === null ||
+                              ptfeEntry?.inverse.minPtfeVolFraction === undefined
+                                ? text.unreachable
+                                : fmtPercent(ptfeEntry.inverse.minPtfeVolFraction)}
+                            </td>
+                          </tr>
+                        )
+                      })
+                    : null}
+                  {transportTab === 'ic'
+                    ? ionicComparison.map(({ entry, ionic }) => (
+                        <tr key={entry.input.id}>
+                          <td data-label={text.caseName}>{entry.input.label[locale]}</td>
+                          <td data-label={text.probability}>{fmtPercent(ionic.pCapped)}</td>
+                          <td data-label={text.conductivity}>{fmtNumber(ionic.sigma, 2)} S/m</td>
+                          <td data-label={minSeWtLabel}>
+                            {ionic.inverse.minSeWeightFraction === null
+                              ? text.unreachable
+                              : fmtPercent(ionic.inverse.minSeWeightFraction)}
+                          </td>
+                          <td data-label={minSeVolLabel}>
+                            {ionic.inverse.minSeVolFraction === null
+                              ? text.unreachable
+                              : fmtPercent(ionic.inverse.minSeVolFraction)}
+                          </td>
+                        </tr>
+                      ))
+                    : null}
+                  {transportTab === 'ecic'
+                    ? dualComparison.map(({ entry, ionic, recommendation }) => (
+                        <tr key={entry.input.id}>
+                          <td data-label={text.caseName}>{entry.input.label[locale]}</td>
+                          <td data-label="EC P">{fmtPercent(entry.probability.pCapped)}</td>
+                          <td data-label="IC P">{fmtPercent(ionic.pCapped)}</td>
+                          <td data-label="EC σ">{fmtNumber(entry.probability.sigma, 2)} S/m</td>
+                          <td data-label="IC σ">{fmtNumber(ionic.sigma, 2)} S/m</td>
+                          <td data-label={text.minCnfWt}>
+                            {entry.inverse.minCnfWeightFraction === null
+                              ? text.unreachable
+                              : fmtPercent(entry.inverse.minCnfWeightFraction)}
+                          </td>
+                          <td data-label={minSeWtLabel}>
+                            {ionic.inverse.minSeWeightFraction === null
+                              ? text.unreachable
+                              : fmtPercent(ionic.inverse.minSeWeightFraction)}
+                          </td>
+                          <td data-label={locale === 'en' ? 'Recommendation' : '추천 조성'}>
+                            {recommendation.feasible
+                              ? `AM ${fmtPercent(recommendation.amWeightFraction)}, SE ${fmtPercent(
+                                  recommendation.seWeightFraction,
+                                )}, CNF ${fmtPercent(
+                                  recommendation.cnfWeightFraction,
+                                )}, PTFE ${fmtPercent(recommendation.ptfeWeightFraction)}`
+                              : text.unreachable}
+                          </td>
+                        </tr>
+                      ))
+                    : null}
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article className="panel" id="ptfe-model-comparison-section">
+            <div className="panel-heading">
+              <h2>{ptfeComparisonSectionTitle}</h2>
+              <p>{ptfeComparisonSectionSubtitle}</p>
+            </div>
+            <div className="ptfe-comparison-callout">
+              <strong>{ptfeModelSpecs[ptfeModelMode].label[locale]}</strong>
+              <p>{ptfeModelSpecs[ptfeModelMode].description[locale]}</p>
             </div>
             <div className="table-card">
               <table className="responsive-table">
                 <thead>
                   <tr>
-                    <th>{text.caseName}</th>
-                    <th>{text.probability}</th>
-                    <th>{text.conductivity}</th>
-                    <th>{text.minCnfWt}</th>
-                    <th>{text.minCnfVol}</th>
+                    <th>{ptfeComparisonModelHeader}</th>
+                    <th>{ptfeComparisonAssumptionHeader}</th>
+                    <th>{ptfeComparisonProbabilityHeader}</th>
+                    <th>{ptfeComparisonConductivityHeader}</th>
                     <th>{minPtfeWtLabel}</th>
                     <th>{minPtfeVolLabel}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {comparison.map((entry) => (
-                    <tr key={entry.input.id}>
-                      <td data-label={text.caseName}>{entry.input.label[locale]}</td>
-                      <td data-label={text.probability}>{fmtPercent(entry.probability.pCapped)}</td>
-                      <td data-label={text.conductivity}>{fmtNumber(entry.probability.sigma, 2)} S/m</td>
-                      <td data-label={text.minCnfWt}>
-                        {entry.inverse.minCnfWeightFraction === null
-                          ? text.unreachable
-                          : fmtPercent(entry.inverse.minCnfWeightFraction)}
+                  {ptfeModelComparisonRows.map((row) => (
+                    <tr
+                      key={row.mode}
+                      className={row.mode === ptfeModelMode ? 'ptfe-comparison-row-active' : ''}
+                    >
+                      <td data-label={ptfeComparisonModelHeader}>
+                        {row.spec.label[locale]}
+                        {row.mode === ptfeModelMode ? (
+                          <span className="ptfe-comparison-selected-badge">
+                            {locale === 'en' ? 'Selected' : '선택됨'}
+                          </span>
+                        ) : null}
                       </td>
-                      <td data-label={text.minCnfVol}>
-                        {entry.inverse.minCnfVolFraction === null
-                          ? text.unreachable
-                          : fmtPercent(entry.inverse.minCnfVolFraction)}
+                      <td data-label={ptfeComparisonAssumptionHeader}>
+                        {row.spec.description[locale]}
+                      </td>
+                      <td data-label={ptfeComparisonProbabilityHeader}>
+                        {fmtPercent(row.probability)}
+                      </td>
+                      <td data-label={ptfeComparisonConductivityHeader}>
+                        {fmtNumber(row.conductivity, 2)} S/m
                       </td>
                       <td data-label={minPtfeWtLabel}>
-                        {entry.inverse.minPtfeWeightFraction === null
-                          ? text.unreachable
-                          : fmtPercent(entry.inverse.minPtfeWeightFraction)}
+                        {row.minPtfeWt === null ? text.unreachable : fmtPercent(row.minPtfeWt)}
                       </td>
                       <td data-label={minPtfeVolLabel}>
-                        {entry.inverse.minPtfeVolFraction === null
-                          ? text.unreachable
-                          : fmtPercent(entry.inverse.minPtfeVolFraction)}
+                        {row.minPtfeVol === null ? text.unreachable : fmtPercent(row.minPtfeVol)}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+            </div>
+            <div className="ptfe-equation-grid">
+              <div className="ptfe-equation-card">
+                <h3>{locale === 'en' ? 'Core equations (book style)' : '핵심 식 (book 스타일)'}</h3>
+                <div className="equation-pretty">
+                  <BookEquation
+                    lhs={
+                      <>
+                        V<sub>eff,PTFE</sub>
+                      </>
+                    }
+                    rhs={
+                      <>
+                        V<sub>PTFE</sub> / V<sub>available</sub>
+                      </>
+                    }
+                  />
+                </div>
+                <div className="equation-pretty">
+                  <BookEquation
+                    lhs={
+                      <>
+                        P<sub>PTFE</sub>
+                      </>
+                    }
+                    rhs={
+                      <>
+                        min(P<sub>0</sub> · max(V<sub>eff,PTFE</sub> - V<sub>th,PTFE</sub>, 0)
+                        <sup>β</sup>, 1)
+                      </>
+                    }
+                  />
+                </div>
+                <div className="equation-pretty">
+                  <BookEquation
+                    lhs={
+                      <>
+                        min w<sub>PTFE</sub>
+                      </>
+                    }
+                    rhs={
+                      <>
+                        argmin<sub>w</sub>{' '}
+                        {'{'}P<sub>PTFE</sub>(w) ≥ P<sub>target</sub>{'}'}
+                      </>
+                    }
+                  />
+                </div>
+              </div>
+              <div className="ptfe-equation-card">
+                <h3>{locale === 'en' ? 'Code-style assumptions' : '코드형 가정 정리'}</h3>
+                <div className="equation-code">
+                  <code>{'Veff,PTFE = VPTFE / Vavailable'}</code>
+                </div>
+                <div className="equation-code">
+                  <code>{'PPTFE = min(P0 * max(Veff,PTFE - Vth,PTFE, 0)^beta, 1)'}</code>
+                </div>
+                <div className="equation-code">
+                  <code>{'Particle + Random: Vth,ideal,PTFE = 3 * Vth,ideal(base)'}</code>
+                </div>
+                <p className="ptfe-equation-note">
+                  {locale === 'en'
+                    ? 'Different Vavailable and Vth assumptions are the main reason the minimum PTFE requirement changes across models.'
+                    : '모델별로 Vavailable과 Vth 가정이 달라지기 때문에 최소 PTFE 요구량이 달라집니다.'}
+                </p>
+              </div>
             </div>
           </article>
 
@@ -2350,6 +3221,7 @@ function App() {
                 key={selectedWalkthroughCase.key}
                 className="walkthrough-card"
                 aria-label={selectedCaseTypeLabel}
+                data-model={walkthroughModelText}
               >
                   <header className="walkthrough-card-header">
                     <h3>{selectedWalkthroughCase.label}</h3>
@@ -2360,7 +3232,7 @@ function App() {
                     </p>
                   </header>
                   <ol className="walkthrough-step-list">
-                    {buildWalkthroughSteps(selectedWalkthroughCase.calculation).map((step, index) => (
+                    {selectedWalkthroughSteps.map((step, index) => (
                       <li
                         key={`${selectedWalkthroughCase.key}-${step.title}`}
                         className="walkthrough-step-item"

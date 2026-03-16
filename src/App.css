@@ -134,6 +134,34 @@
   align-items: start;
 }
 
+.transport-tabs {
+  display: inline-flex;
+  gap: 8px;
+  margin: 16px 0 6px;
+  padding: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.transport-tabs button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0.58rem 0.9rem;
+  font: inherit;
+  font-weight: 600;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+
+.transport-tabs button.active,
+.transport-tabs button:hover {
+  background: var(--ink);
+  color: #fff;
+}
+
 .sidebar,
 .content {
   display: flex;
@@ -188,6 +216,28 @@
 
 .logic-jump-button:focus-visible {
   outline: 2px solid rgba(36, 89, 68, 0.75);
+  outline-offset: 2px;
+}
+
+.ptfe-comparison-jump-button {
+  min-height: 44px;
+  border: 1px solid rgba(241, 113, 56, 0.55);
+  border-radius: 14px;
+  padding: 0.72rem 0.9rem;
+  font: inherit;
+  font-weight: 700;
+  color: #7a3411;
+  background: rgba(241, 113, 56, 0.16);
+  box-shadow: 0 8px 18px rgba(241, 113, 56, 0.2);
+  cursor: pointer;
+}
+
+.ptfe-comparison-jump-button:hover {
+  transform: translateY(-1px);
+}
+
+.ptfe-comparison-jump-button:focus-visible {
+  outline: 2px solid rgba(241, 113, 56, 0.8);
   outline-offset: 2px;
 }
 
@@ -420,6 +470,63 @@ td code {
   display: block;
   margin-bottom: 8px;
   color: var(--muted);
+}
+
+.ptfe-binder-model-note {
+  margin: -4px 0 12px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.ptfe-comparison-callout {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(241, 113, 56, 0.28);
+  background: rgba(241, 113, 56, 0.1);
+}
+
+.ptfe-comparison-callout strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.ptfe-comparison-row-active {
+  background: rgba(52, 127, 94, 0.08);
+}
+
+.ptfe-comparison-selected-badge {
+  margin-left: 8px;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #1f513d;
+  background: rgba(52, 127, 94, 0.18);
+}
+
+.ptfe-equation-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ptfe-equation-card {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.ptfe-equation-card h3 {
+  margin-bottom: 8px;
+}
+
+.ptfe-equation-note {
+  margin-top: 10px;
+  color: var(--muted);
+  font-size: 0.92rem;
 }
 
 .methods-grid {
@@ -898,6 +1005,10 @@ td code {
   .detail-grid {
     grid-template-columns: 1fr;
   }
+
+  .ptfe-equation-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 720px) {
@@ -910,7 +1021,21 @@ td code {
     align-items: flex-start;
   }
 
+  .transport-tabs {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .transport-tabs button {
+    flex: 1 1 0;
+    text-align: center;
+  }
+
   .logic-jump-button {
+    width: 100%;
+  }
+
+  .ptfe-comparison-jump-button {
     width: 100%;
   }
 
