@@ -157,8 +157,38 @@
   margin-bottom: 18px;
 }
 
+.panel-heading--row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .panel-heading p {
   color: var(--muted);
+}
+
+.logic-jump-button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 12px;
+  padding: 0.62rem 0.92rem;
+  font: inherit;
+  font-weight: 600;
+  color: #fff;
+  cursor: pointer;
+  background: linear-gradient(135deg, #347f5e, #245944);
+  box-shadow: 0 10px 20px rgba(36, 89, 68, 0.25);
+  white-space: nowrap;
+}
+
+.logic-jump-button:hover {
+  transform: translateY(-1px);
+}
+
+.logic-jump-button:focus-visible {
+  outline: 2px solid rgba(36, 89, 68, 0.75);
+  outline-offset: 2px;
 }
 
 .preset-grid {
@@ -669,6 +699,101 @@ td code {
   margin-top: 8px;
 }
 
+.calculation-logic-panel {
+  margin-top: 2px;
+}
+
+.walkthrough-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  gap: 14px;
+}
+
+.walkthrough-card {
+  border-radius: 18px;
+  border: 1px solid var(--border-soft);
+  background: rgba(255, 255, 255, 0.86);
+  padding: 16px;
+}
+
+.walkthrough-card-header {
+  margin-bottom: 12px;
+}
+
+.walkthrough-card-type {
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.walkthrough-card-header h3 {
+  margin-top: 6px;
+  font-size: 1.15rem;
+}
+
+.walkthrough-card-model {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.walkthrough-step-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.walkthrough-step-item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 10px;
+  border-radius: 14px;
+  padding: 10px;
+  border: 1px solid rgba(34, 46, 38, 0.1);
+  background: rgba(252, 249, 244, 0.9);
+}
+
+.walkthrough-step-index {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #347f5e, #245944);
+}
+
+.walkthrough-step-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.walkthrough-step-description {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.walkthrough-step-equation {
+  margin-top: 6px;
+}
+
+.walkthrough-step-equation code {
+  display: block;
+  white-space: normal;
+}
+
+.walkthrough-step-value {
+  margin-top: 6px;
+  font-size: 0.93rem;
+  font-weight: 600;
+}
+
 .mobile-scroll-rail,
 .mobile-jump-fab {
   display: none;
@@ -778,6 +903,15 @@ td code {
 @media (max-width: 720px) {
   .shell {
     padding: 14px;
+  }
+
+  .panel-heading--row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .logic-jump-button {
+    width: 100%;
   }
 
   .mobile-scroll-rail {
@@ -904,6 +1038,10 @@ td code {
     white-space: normal;
   }
 
+  .walkthrough-grid {
+    grid-template-columns: 1fr;
+  }
+
   .curve-card {
     overflow-x: hidden;
   }
@@ -973,6 +1111,10 @@ td code {
 
   .results-grid {
     grid-template-columns: 1fr;
+  }
+
+  .walkthrough-card {
+    padding: 14px;
   }
 
   .field input,

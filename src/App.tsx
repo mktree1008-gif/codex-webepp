@@ -30,6 +30,7 @@ import {
 import { buildBilingualSummary } from './lib/summary'
 import type {
   AccessibleVolumeRule,
+  CalculationResult,
   CaseInput,
   CompositionMode,
   DensitySet,
@@ -305,6 +306,13 @@ type EquationSection = {
   title: string
   description?: string
   equations: EquationEntry[]
+}
+
+type WalkthroughStep = {
+  title: string
+  description: string
+  equation: string
+  value: string
 }
 
 type FieldProps = {
@@ -1303,6 +1311,21 @@ function App() {
     }
   }
 
+  const jumpToLogicLabel =
+    locale === 'en' ? 'Calculation steps' : '계산 과정 보기'
+  const logicSectionTitle =
+    locale === 'en'
+      ? 'Step-by-step calculation walkthrough'
+      : '단계별 계산 과정 안내'
+  const logicSectionSubtitle =
+    locale === 'en'
+      ? 'Each case below shows model assumptions and the exact path to probability, conductivity, and minimum CNF(wt%).'
+      : '아래 각 케이스에서 모델 가정과 확률·전도도·최소 CNF(wt%) 도출 과정을 순서대로 확인할 수 있습니다.'
+  const currentCaseTitle =
+    locale === 'en' ? 'Current input (editable)' : '현재 입력값 (사용자 편집)'
+  const presetCaseTitle =
+    locale === 'en' ? 'Preset case' : '프리셋 케이스'
+
   const scrollToProgress = (progress: number, behavior: ScrollBehavior) => {
     if (typeof window === 'undefined') {
       return
@@ -1323,6 +1346,17 @@ function App() {
       return
     }
     resultsPanel.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  }
+
+  const scrollToLogic = () => {
+    const logicPanel = document.getElementById('calculation-logic-section')
+    if (!logicPanel) {
+      return
+    }
+    logicPanel.scrollIntoView({
       behavior: 'smooth',
       block: 'start',
     })
@@ -1445,6 +1479,100 @@ function App() {
   const handleThumbPointerCancel = (event: PointerEvent<HTMLSpanElement>) => {
     finishThumbDrag(event, true)
   }
+
+  const buildWalkthroughSteps = (calculation: CalculationResult): WalkthroughStep[] => {
+    const cnfVol = calculation.composition.volumeFractions.cnf
+    const cnfWt = calculation.composition.weightFractions.cnf
+    const diff = Math.max(calculation.probability.diff, 0)
+    const minimumCnfWt =
+      calculation.inverse.minCnfWeightFraction === null
+        ? text.unreachable
+        : fmtPercent(calculation.inverse.minCnfWeightFraction)
+
+    return [
+      {
+        title: locale === 'en' ? 'Step 1 · Normalize composition' : '1단계 · 조성 정규화',
+        description:
+          locale === 'en'
+            ? 'Use AM/SE/CNF/PTFE on one solids basis and apply porosity.'
+            : 'AM/SE/CNF/PTFE를 동일한 고형분 기준으로 정리하고 기공도를 반영합니다.',
+        equation: 'wAM + wSE + wCNF + wPTFE = 1,  Vsolid = 1 - ε',
+        value: `AM ${fmtPercent(calculation.composition.weightFractions.am)}, SE ${fmtPercent(calculation.composition.weightFractions.se)}, CNF ${fmtPercent(cnfWt)}, PTFE ${fmtPercent(calculation.composition.weightFractions.ptfe)}, ε ${fmtPercent(calculation.input.porosity)}`,
+      },
+      {
+        title: locale === 'en' ? 'Step 2 · Convert wt% to vol%' : '2단계 · wt% → vol% 변환',
+        description:
+          locale === 'en'
+            ? 'Convert mass fractions to volume fractions with densities.'
+            : '밀도값으로 질량 조성을 부피 조성으로 변환합니다.',
+        equation: 'Msolid = (1-ε)/Σ(wi/ρi),  φi = (wi·Msolid)/ρi',
+        value: `CNF vol ${fmtPercent(cnfVol)}, AM vol ${fmtPercent(calculation.composition.volumeFractions.am)}, SE vol ${fmtPercent(calculation.composition.volumeFractions.se)}`,
+      },
+      {
+        title:
+          locale === 'en'
+            ? 'Step 3 · Accessible volume and Veff'
+            : '3단계 · 가용부피/유효농도(Veff)',
+        description:
+          locale === 'en'
+            ? 'Apply the selected accessible-volume rule and compute Veff.'
+            : '선택한 가용부피 규칙을 적용하고 Veff를 계산합니다.',
+        equation: 'Vavailable = rule(AM, SE),  Veff = φCNF / Vavailable',
+        value: `Vavailable ${fmtNumber(calculation.probability.vAvailable, 4)}, Veff ${fmtNumber(calculation.probability.veff, 5)}`,
+      },
+      {
+        title:
+          locale === 'en'
+            ? 'Step 4 · Active threshold'
+            : '4단계 · 활성 임계치(Vth_active)',
+        description:
+          locale === 'en'
+            ? 'Derive active threshold from threshold mode and geometry.'
+            : '선택한 임계치 모드와 기하 파라미터로 활성 임계치를 결정합니다.',
+        equation: 'Δ = max(Veff - Vth_active, 0)',
+        value: `Vth_active ${fmtNumber(calculation.thresholds.active, 6)}, Δ ${fmtNumber(diff, 6)}`,
+      },
+      {
+        title:
+          locale === 'en'
+            ? 'Step 5 · Probability and conductivity'
+            : '5단계 · 확률/전도도 계산',
+        description:
+          locale === 'en'
+            ? 'Compute percolation and conductivity from Δ.'
+            : 'Δ 기반으로 퍼콜레이션 확률과 전도도를 계산합니다.',
+        equation: 'Praw = P0·Δ^β,  P = min(Praw, 1),  σ = σ0·Δ^t',
+        value: `P ${fmtPercent(calculation.probability.pCapped)} (raw ${fmtNumber(calculation.probability.pRaw, 4)}), σ ${fmtNumber(calculation.probability.sigma, 2)} S/m`,
+      },
+      {
+        title:
+          locale === 'en'
+            ? 'Step 6 · Inverse minimum CNF'
+            : '6단계 · 최소 CNF 역산',
+        description:
+          locale === 'en'
+            ? 'Back-solve minimum CNF(wt%) for target probability.'
+            : '목표 확률을 만족하는 최소 CNF(wt%)를 역산합니다.',
+        equation: 'min wCNF such that P(wCNF) ≥ Ptarget',
+        value: `${locale === 'en' ? 'Target' : '목표'} ${fmtPercent(calculation.inverse.targetProbability)} → ${locale === 'en' ? 'Minimum CNF(wt%)' : '최소 CNF(wt%)'} ${minimumCnfWt}`,
+      },
+    ]
+  }
+
+  const walkthroughCases = [
+    {
+      key: 'current',
+      title: currentCaseTitle,
+      label: result.input.label[locale],
+      calculation: result,
+    },
+    ...comparison.map((entry) => ({
+      key: entry.input.id,
+      title: presetCaseTitle,
+      label: entry.input.label[locale],
+      calculation: entry,
+    })),
+  ]
 
   useEffect(
     () => () => {
@@ -1855,8 +1983,15 @@ function App() {
 
         <section className="content">
           <article className="panel" id="results-panel">
-            <div className="panel-heading">
+            <div className="panel-heading panel-heading--row">
               <h2>{text.results}</h2>
+              <button
+                type="button"
+                className="logic-jump-button"
+                onClick={scrollToLogic}
+              >
+                {jumpToLogicLabel}
+              </button>
             </div>
             <div className="results-grid">
               <ResultCard label={text.probability} value={fmtPercent(result.probability.pCapped)} tone="accent" />
@@ -2108,6 +2243,48 @@ function App() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </article>
+
+          <article className="panel calculation-logic-panel" id="calculation-logic-section">
+            <div className="panel-heading">
+              <h2>{logicSectionTitle}</h2>
+              <p>{logicSectionSubtitle}</p>
+            </div>
+            <div className="walkthrough-grid">
+              {walkthroughCases.map((item) => (
+                <section key={item.key} className="walkthrough-card">
+                  <header className="walkthrough-card-header">
+                    <p className="walkthrough-card-type">{item.title}</p>
+                    <h3>{item.label}</h3>
+                    <p className="walkthrough-card-model">
+                      {networkModelLabels[deferredAssumptions.networkModel][locale]} ·{' '}
+                      {accessibleRuleLabels[deferredAssumptions.accessibleVolumeRule][locale]} ·{' '}
+                      {thresholdModeLabels[deferredAssumptions.thresholdMode][locale]}
+                    </p>
+                  </header>
+                  <ol className="walkthrough-step-list">
+                    {buildWalkthroughSteps(item.calculation).map((step, index) => (
+                      <li
+                        key={`${item.key}-${step.title}`}
+                        className="walkthrough-step-item"
+                      >
+                        <span className="walkthrough-step-index" aria-hidden>
+                          {index + 1}
+                        </span>
+                        <div className="walkthrough-step-content">
+                          <p className="walkthrough-step-title">{step.title}</p>
+                          <p className="walkthrough-step-description">{step.description}</p>
+                          <p className="walkthrough-step-equation">
+                            <code>{step.equation}</code>
+                          </p>
+                          <p className="walkthrough-step-value">{step.value}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              ))}
             </div>
           </article>
         </section>
