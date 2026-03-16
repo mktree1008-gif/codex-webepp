@@ -227,6 +227,10 @@
   min-width: 108px;
   max-width: 160px;
   justify-self: start;
+  align-self: end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0.1rem 0.55rem;
   font: inherit;
   font-size: 0.86rem;
