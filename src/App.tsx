@@ -72,7 +72,7 @@ const textByLocale = {
     probability: 'Percolation probability',
     probabilityRaw: 'Uncapped probability',
     conductivity: 'Conductivity level',
-    minCnfWt: 'Minimum CNF for target P',
+    minCnfWt: 'Minimum CNF(wt%) for target P',
     minCnfVol: 'Minimum CNF vol%',
     networkModel: 'Active network model',
     thresholdMode: 'Threshold mode',
@@ -194,7 +194,7 @@ const textByLocale = {
     probability: '퍼콜레이션 확률',
     probabilityRaw: '보정 전 확률',
     conductivity: '전도도 수준',
-    minCnfWt: '목표 P를 위한 최소 CNF',
+    minCnfWt: '목표 P를 위한 최소 CNF(wt%)',
     minCnfVol: '최소 CNF vol%',
     networkModel: '활성 네트워크 모델',
     thresholdMode: '임계값 계산 방식',
@@ -574,7 +574,7 @@ function App() {
   const [geometry, setGeometry] = useState<GeometryInput>(defaultGeometry)
   const [assumptions, setAssumptions] = useState<ModelAssumptions>(defaultModelAssumptions)
   const [copyStatus, setCopyStatus] = useState<'idle' | 'copied' | 'failed'>('idle')
-  const [equationView, setEquationView] = useState<EquationView>('code')
+  const [equationView, setEquationView] = useState<EquationView>('book')
   const [selectedEquationId, setSelectedEquationId] = useState('workflow-solid')
   const [scrollNav, setScrollNav] = useState<ScrollNavState>({
     scrollTop: 0,
