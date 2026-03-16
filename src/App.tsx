@@ -3292,7 +3292,7 @@ function App() {
                 className="ptfe-comparison-jump-button"
                 onClick={scrollToPtfeComparison}
               >
-                {ptfeComparisonJumpLabel}
+                {ptfeComparisonJumpLabel ? 'Model Comparison' : 'Model Comparison'}
               </button>
               <NumberField
                 label={text.beta}
