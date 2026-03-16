@@ -219,6 +219,29 @@
   outline-offset: 2px;
 }
 
+.reverse-explanation-jump-button {
+  min-height: 40px;
+  border: 1px solid rgba(52, 127, 94, 0.45);
+  border-radius: 12px;
+  padding: 0.5rem 0.82rem;
+  font: inherit;
+  font-weight: 700;
+  color: #1d4f3b;
+  background: rgba(52, 127, 94, 0.12);
+  box-shadow: 0 8px 18px rgba(36, 89, 68, 0.16);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.reverse-explanation-jump-button:hover {
+  transform: translateY(-1px);
+}
+
+.reverse-explanation-jump-button:focus-visible {
+  outline: 2px solid rgba(36, 89, 68, 0.65);
+  outline-offset: 2px;
+}
+
 .ptfe-comparison-jump-button {
   min-height: 10px;
   border: 1px solid rgba(241, 113, 56, 0.55);
@@ -797,6 +820,18 @@ td code {
   color: var(--muted);
 }
 
+.reverse-explanation-summary {
+  border: 1px solid rgba(52, 127, 94, 0.24);
+  border-radius: 14px;
+  background: rgba(52, 127, 94, 0.06);
+  padding: 0.9rem 1rem;
+  margin-bottom: 14px;
+}
+
+.reverse-explanation-summary h3 {
+  margin-bottom: 8px;
+}
+
 .reverse-controls-grid {
   margin-top: 6px;
 }
@@ -1122,6 +1157,10 @@ td code {
   }
 
   .logic-jump-button {
+    width: 100%;
+  }
+
+  .reverse-explanation-jump-button {
     width: 100%;
   }
 

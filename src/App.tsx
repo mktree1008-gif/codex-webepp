@@ -1383,6 +1383,30 @@ function App() {
       : '등고선은 P가 목표값에 도달하는 경계(근사)를 나타냅니다.'
   const cnfDiameterLabel =
     locale === 'en' ? 'CNF diameter / size (µm)' : 'CNF 직경 / 크기 (µm)'
+  const reverseExplanationJumpLabel =
+    locale === 'en' ? 'Explanation' : '설명 보기'
+  const reverseExplanationTitle =
+    locale === 'en'
+      ? 'How PTFE-fixed reverse design is solved'
+      : 'PTFE 고정 역설계 계산 설명'
+  const reverseExplanationSubtitle =
+    locale === 'en'
+      ? 'The optimizer fixes PTFE, scans feasible CNF and SE compositions, and then selects the minimum-additive candidate.'
+      : 'PTFE를 고정한 뒤 CNF/SE 후보를 탐색하고, 목표 P를 만족하는 조성 중 첨가제 합(CNF+PTFE)이 최소인 조성을 선택합니다.'
+  const reverseExplanationSummaryTitle =
+    locale === 'en' ? 'Logic summary' : '로직 요약'
+  const reverseExplanationStepTitle =
+    locale === 'en' ? 'Step-by-step derivation (selected recommendation)' : '단계별 계산식 (현재 추천 조성 기준)'
+  const reverseExplanationNoData =
+    locale === 'en'
+      ? 'No recommended composition is currently available, so derivation details are not shown.'
+      : '현재 추천 조성이 없어 단계별 계산식을 표시할 수 없습니다.'
+  const reverseExplanationFormulaHeader =
+    locale === 'en' ? 'Equation' : '식'
+  const reverseExplanationSubHeader =
+    locale === 'en' ? 'Substitution' : '대입'
+  const reverseExplanationValueHeader =
+    locale === 'en' ? 'Result / meaning' : '결과 / 의미'
   const ptfeFibrilDiameterLabel =
     locale === 'en' ? 'PTFE fibril diameter (µm)' : 'PTFE fibril 직경 (µm)'
 
@@ -2159,6 +2183,90 @@ function App() {
       deferredAssumptions,
     ],
   )
+  const reverseExplanationSteps = useMemo(() => {
+    if (!reverseDesignResult.best) {
+      return []
+    }
+
+    const best = reverseDesignResult.best
+    const calc = best.calculation
+    const ptfeFixed = reverseDesignResult.fixedPtfeApplied
+    const seRuleSummary =
+      reverseDesignConfig.seMode === 'fixed'
+        ? `wSE = ${fmtPercent(reverseDesignConfig.fixedSeWeightFraction)}`
+        : `wSE in [${fmtPercent(reverseDesignConfig.seRangeMin)}, ${fmtPercent(reverseDesignConfig.seRangeMax)}], step ${fmtPercent(reverseDesignConfig.seStep)}`
+    const cnfRangeSummary = `wCNF in [${fmtPercent(reverseDesignConfig.cnfRangeMin)}, ${fmtPercent(reverseDesignConfig.cnfRangeMax)}], step ${fmtPercent(reverseDesignConfig.cnfStep)}`
+    const ratioMatrixToCnf = fmtNumber(calc.geometry.amToAdditiveRatio, 2)
+    const vCnf = calc.composition.volumeFractions.cnf
+
+    return [
+      {
+        id: 'setup',
+        step: locale === 'en' ? 'Step 1. Lock practical design inputs' : 'Step 1. 실용 입력 고정',
+        equation:
+          'wPTFE = fixed, target P = Ptarget, epsilon = porosity',
+        substitution: `wPTFE = ${fmtPercent(ptfeFixed)}, Ptarget = ${fmtPercent(reverseDesignConfig.targetProbability)}, epsilon = ${fmtPercent(reverseDesignConfig.porosity)}`,
+        value:
+          locale === 'en'
+            ? 'PTFE is fixed first, then CNF and AM/SE are searched.'
+            : 'PTFE를 먼저 고정하고 CNF와 AM/SE를 탐색합니다.',
+      },
+      {
+        id: 'candidate',
+        step: locale === 'en' ? 'Step 2. Generate feasible candidates' : 'Step 2. 후보 조성 생성',
+        equation:
+          'wAM = 1 - wSE - wCNF - wPTFE',
+        substitution: `${seRuleSummary}; ${cnfRangeSummary}`,
+        value:
+          locale === 'en'
+            ? `Evaluated ${reverseDesignResult.evaluatedCount} candidates, feasible ${reverseDesignResult.feasibleCount}.`
+            : `총 ${reverseDesignResult.evaluatedCount}개 평가, ${reverseDesignResult.feasibleCount}개가 목표 조건을 만족했습니다.`,
+      },
+      {
+        id: 'threshold',
+        step: locale === 'en' ? 'Step 3. Compute active threshold' : 'Step 3. 활성 임계값 계산',
+        equation:
+          'Vth = Vth,ideal * (1 + Rmatrix / Rfiber)^(-1)',
+        substitution: `Rmatrix/Rfiber = ${ratioMatrixToCnf}, Vth(active) = ${fmtNumber(calc.thresholds.active, 6)}`,
+        value:
+          locale === 'en'
+            ? 'Particle-size ratio correction is applied with the segregated model.'
+            : '입경비 보정과 segregated 모델을 함께 적용한 임계값입니다.',
+      },
+      {
+        id: 'veff',
+        step: locale === 'en' ? 'Step 4. Compute effective conductive fraction' : 'Step 4. 유효 도전 분율 계산',
+        equation:
+          'Veff = VCNF / Vavailable',
+        substitution: `VCNF = ${fmtNumber(vCnf, 5)}, Vavailable = ${fmtNumber(calc.probability.vAvailable, 5)}`,
+        value: `Veff = ${fmtNumber(calc.probability.veff, 5)}`,
+      },
+      {
+        id: 'probability',
+        step: locale === 'en' ? 'Step 5. Evaluate percolation probability' : 'Step 5. 퍼콜레이션 확률 평가',
+        equation:
+          'P = min(P0 * max(Veff - Vth, 0)^beta, 1)',
+        substitution: `P0 = ${fmtNumber(deferredAssumptions.p0, 3)}, beta = ${fmtNumber(deferredAssumptions.beta, 3)}, margin = ${fmtNumber(calc.probability.diff, 6)}`,
+        value: `P = ${fmtPercent(calc.probability.pCapped)}, sigma = ${fmtNumber(calc.probability.sigma, 2)} S/m`,
+      },
+      {
+        id: 'objective',
+        step: locale === 'en' ? 'Step 6. Select optimum candidate' : 'Step 6. 최적 후보 선택',
+        equation:
+          'minimize (wCNF + wPTFE), subject to P >= Ptarget',
+        substitution: `wCNF + wPTFE = ${fmtPercent(best.additiveFraction)}`,
+        value:
+          locale === 'en'
+            ? `Recommended: AM ${fmtPercent(best.amWeightFraction)}, SE ${fmtPercent(best.seWeightFraction)}, CNF ${fmtPercent(best.cnfWeightFraction)}, PTFE ${fmtPercent(best.ptfeWeightFraction)}`
+            : `권장 조성: AM ${fmtPercent(best.amWeightFraction)}, SE ${fmtPercent(best.seWeightFraction)}, CNF ${fmtPercent(best.cnfWeightFraction)}, PTFE ${fmtPercent(best.ptfeWeightFraction)}`,
+      },
+    ]
+  }, [
+    reverseDesignResult,
+    reverseDesignConfig,
+    deferredAssumptions,
+    locale,
+  ])
   const selectedEquation =
     allEquations.find((equation) => equation.id === selectedEquationId) ?? allEquations[0]
   const probabilityCurve =
@@ -2429,6 +2537,17 @@ function App() {
     const panel =
       document.getElementById('cnf-model-comparison-section') ??
       document.getElementById('ptfe-model-comparison-section')
+    if (!panel) {
+      return
+    }
+    panel.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start',
+    })
+  }
+
+  const scrollToReverseExplanation = () => {
+    const panel = document.getElementById('reverse-design-explanation-section')
     if (!panel) {
       return
     }
@@ -3422,9 +3541,18 @@ function App() {
 
           {transportTab === 'ec' ? (
             <article className="panel">
-              <div className="panel-heading">
-                <h2>{reverseDesignTitle}</h2>
-                <p>{reverseDesignSubtitle}</p>
+              <div className="panel-heading panel-heading--row">
+                <div>
+                  <h2>{reverseDesignTitle}</h2>
+                  <p>{reverseDesignSubtitle}</p>
+                </div>
+                <button
+                  type="button"
+                  className="reverse-explanation-jump-button"
+                  onClick={scrollToReverseExplanation}
+                >
+                  {reverseExplanationJumpLabel}
+                </button>
               </div>
               <div className="reverse-note-card">
                 <strong>{reverseAdditiveObjectiveLabel}</strong>
@@ -3606,6 +3734,73 @@ function App() {
                   locale={locale}
                 />
               </div>
+            </article>
+          ) : null}
+
+          {transportTab === 'ec' ? (
+            <article className="panel" id="reverse-design-explanation-section">
+              <div className="panel-heading">
+                <h2>{reverseExplanationTitle}</h2>
+                <p>{reverseExplanationSubtitle}</p>
+              </div>
+
+              <div className="reverse-explanation-summary">
+                <h3>{reverseExplanationSummaryTitle}</h3>
+                <ul className="conditions-list">
+                  <li>{reverseModelLockNote}</li>
+                  <li>
+                    {reverseDesignConfig.seMode === 'fixed'
+                      ? locale === 'en'
+                        ? `SE is fixed at ${fmtPercent(reverseDesignConfig.fixedSeWeightFraction)} while CNF is scanned in the configured range.`
+                        : `SE는 ${fmtPercent(reverseDesignConfig.fixedSeWeightFraction)}로 고정하고, CNF를 설정 범위에서 탐색합니다.`
+                      : locale === 'en'
+                        ? `SE is optimized in [${fmtPercent(reverseDesignConfig.seRangeMin)}, ${fmtPercent(reverseDesignConfig.seRangeMax)}] with step ${fmtPercent(reverseDesignConfig.seStep)}.`
+                        : `SE는 [${fmtPercent(reverseDesignConfig.seRangeMin)}, ${fmtPercent(reverseDesignConfig.seRangeMax)}] 범위를 ${fmtPercent(reverseDesignConfig.seStep)} 간격으로 탐색합니다.`}
+                  </li>
+                  <li>
+                    {locale === 'en'
+                      ? 'Optimization objective: minimize CNF + PTFE under P >= target.'
+                      : '최적화 목표: P >= 목표값 조건에서 CNF + PTFE를 최소화.'}
+                  </li>
+                </ul>
+              </div>
+
+              <div className="panel-heading reverse-result-heading">
+                <h3>{reverseExplanationStepTitle}</h3>
+              </div>
+
+              {reverseExplanationSteps.length > 0 ? (
+                <div className="table-card">
+                  <table className="responsive-table">
+                    <thead>
+                      <tr>
+                        <th>{text.caseName}</th>
+                        <th>{reverseExplanationFormulaHeader}</th>
+                        <th>{reverseExplanationSubHeader}</th>
+                        <th>{reverseExplanationValueHeader}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reverseExplanationSteps.map((step) => (
+                        <tr key={step.id}>
+                          <td data-label={text.caseName}>{step.step}</td>
+                          <td data-label={reverseExplanationFormulaHeader}>
+                            <code>{step.equation}</code>
+                          </td>
+                          <td data-label={reverseExplanationSubHeader}>
+                            <code>{step.substitution}</code>
+                          </td>
+                          <td data-label={reverseExplanationValueHeader}>{step.value}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="reverse-empty-state">
+                  <p>{reverseExplanationNoData}</p>
+                </div>
+              )}
             </article>
           ) : null}
 
