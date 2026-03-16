@@ -23,6 +23,9 @@ export const buildBilingualSummary = (result: CalculationResult) => {
     inverse.minCnfWeightFraction === null
       ? 'Minimum CNF for target P: not reachable within the model limits'
       : `Minimum CNF for target P=${fmtPercent(inverse.targetProbability)}: ${fmtPercent(inverse.minCnfWeightFraction)} wt% (${fmtPercent(inverse.minCnfVolFraction ?? 0)} vol%)`,
+    inverse.minPtfeWeightFraction === null
+      ? 'Minimum PTFE for target P: not reachable within the model limits'
+      : `Minimum PTFE for target P=${fmtPercent(inverse.targetProbability)}: ${fmtPercent(inverse.minPtfeWeightFraction)} wt% (${fmtPercent(inverse.minPtfeVolFraction ?? 0)} vol%)`,
     '',
     '한국어',
     `케이스: ${input.label.ko}`,

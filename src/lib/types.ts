@@ -144,6 +144,8 @@ export type InverseSolveResult = {
   targetProbability: number
   minCnfVolFraction: number | null
   minCnfWeightFraction: number | null
+  minPtfeVolFraction: number | null
+  minPtfeWeightFraction: number | null
 }
 
 export type CalculationResult = {

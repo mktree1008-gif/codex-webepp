@@ -75,6 +75,8 @@ const textByLocale = {
     conductivity: 'Conductivity level',
     minCnfWt: 'Minimum CNF(wt%) for target P',
     minCnfVol: 'Minimum CNF vol%',
+    minPtfeWt: 'Minimum PTFE(wt%) for target P',
+    minPtfeVol: 'Minimum PTFE vol%',
     networkModel: 'Active network model',
     thresholdMode: 'Threshold mode',
     accessibleRule: 'CNF accessible-volume rule',
@@ -148,7 +150,7 @@ const textByLocale = {
     methodsCondition5:
       'The capped probability shown in the result is P = min(Praw, 1).',
     methodsCondition6:
-      'The inverse solver finds the minimum CNF wt% that reaches the chosen target probability, then reports the derived CNF vol% too.',
+      'The inverse solvers find minimum CNF wt% and minimum PTFE wt% that each reach the chosen target probability, then report derived vol% values too.',
     references: 'Reference notes',
     referencesText:
       'This implementation follows a continuum/segregated percolation workflow: lab inputs in wt%, percolation scaling in converted vol%, segregated threshold lowered by particle-size ratio, and probability/conductivity scaled above threshold.',
@@ -1096,6 +1098,68 @@ function App() {
         },
       ],
     },
+    {
+      title:
+        locale === 'en'
+          ? '8. PTFE inverse companion equations'
+          : '8. PTFE 역산 보조 식',
+      equations: [
+        {
+          id: 'inverse-ptfe-target-companion',
+          code: 'Find minimum w_PTFE such that P_PTFE(w_PTFE) >= P_target',
+          pretty: (
+            <BookEquation
+              lhs={<>min w<sub>PTFE</sub></>}
+              rhs={<>such that P<sub>PTFE</sub>(w<sub>PTFE</sub>) ≥ P<sub>target</sub></>}
+            />
+          ),
+          summary:
+            locale === 'en'
+              ? 'Defines minimum PTFE wt% design target under the PTFE branch.'
+              : 'PTFE 분기 모델에서 최소 PTFE wt% 목표를 정의합니다.',
+          explanation:
+            locale === 'en'
+              ? 'SE and CNF stay fixed while PTFE is varied. The inverse solver returns the lowest PTFE wt% that satisfies target probability.'
+              : 'SE와 CNF는 고정하고 PTFE만 변화시켜 목표 확률을 만족하는 최소 PTFE wt%를 찾습니다.',
+          conditions:
+            locale === 'en'
+              ? 'Evaluated with PTFE aspect ratio and PTFE accessible-volume rule.'
+              : 'PTFE 종횡비와 PTFE 가용부피 규칙을 적용합니다.',
+          variables: [
+            {
+              symbol: 'PPTFE',
+              meaning:
+                locale === 'en'
+                  ? 'percolation probability from PTFE-network branch'
+                  : 'PTFE 네트워크 분기에서 계산한 확률',
+            },
+          ],
+        },
+        {
+          id: 'inverse-ptfe-report-companion',
+          code: 'Convert solved w_PTFE to phi_PTFE with the same density set',
+          pretty: (
+            <BookEquation
+              lhs={<>report</>}
+              rhs={<>solved w<sub>PTFE</sub> and derived ?<sub>PTFE</sub></>}
+            />
+          ),
+          summary:
+            locale === 'en'
+              ? 'Reports PTFE in both wt% and vol% after solving.'
+              : '역산 후 PTFE를 wt%와 vol%로 함께 보고합니다.',
+          explanation:
+            locale === 'en'
+              ? 'The model equations still run in volume fraction, so showing both units keeps input and model domains aligned.'
+              : '모델은 vol% 기준으로 계산되므로 입력 기준(wt%)과 모델 기준(vol%)을 함께 보여줍니다.',
+          conditions:
+            locale === 'en'
+              ? 'Uses the same density conversion path as the main forward solver.'
+              : '정방향 솔버와 동일한 밀도 변환 경로를 사용합니다.',
+          variables: [],
+        },
+      ],
+    },
   ]
   const allEquations = equationSections.flatMap((section) => section.equations)
   const result = calculateCase(
@@ -1319,8 +1383,12 @@ function App() {
       : '단계별 계산 과정 안내'
   const logicSectionSubtitle =
     locale === 'en'
-      ? 'Each case below shows model assumptions and the exact path to probability, conductivity, and minimum CNF(wt%).'
+      ? 'Only the currently selected case is shown below, with the exact path to probability, conductivity, and minimum CNF/PTFE(wt%).'
       : '아래 각 케이스에서 모델 가정과 확률·전도도·최소 CNF(wt%) 도출 과정을 순서대로 확인할 수 있습니다.'
+  const minPtfeWtLabel =
+    locale === 'en' ? 'Minimum PTFE(wt%) for target P' : '목표 P를 위한 최소 PTFE(wt%)'
+  const minPtfeVolLabel =
+    locale === 'en' ? 'Minimum PTFE vol%' : '최소 PTFE vol%'
   const currentCaseTitle =
     locale === 'en' ? 'Current input (editable)' : '현재 입력값 (사용자 편집)'
   const presetCaseTitle =
@@ -1488,6 +1556,10 @@ function App() {
       calculation.inverse.minCnfWeightFraction === null
         ? text.unreachable
         : fmtPercent(calculation.inverse.minCnfWeightFraction)
+    const minimumPtfeWt =
+      calculation.inverse.minPtfeWeightFraction === null
+        ? text.unreachable
+        : fmtPercent(calculation.inverse.minPtfeWeightFraction)
 
     return [
       {
@@ -1547,32 +1619,26 @@ function App() {
       {
         title:
           locale === 'en'
-            ? 'Step 6 · Inverse minimum CNF'
-            : '6단계 · 최소 CNF 역산',
+            ? 'Step 6 · Inverse minimum CNF/PTFE'
+            : '6단계 · 최소 CNF/PTFE 역산',
         description:
           locale === 'en'
-            ? 'Back-solve minimum CNF(wt%) for target probability.'
-            : '목표 확률을 만족하는 최소 CNF(wt%)를 역산합니다.',
-        equation: 'min wCNF such that P(wCNF) ≥ Ptarget',
-        value: `${locale === 'en' ? 'Target' : '목표'} ${fmtPercent(calculation.inverse.targetProbability)} → ${locale === 'en' ? 'Minimum CNF(wt%)' : '최소 CNF(wt%)'} ${minimumCnfWt}`,
+            ? 'Back-solve minimum CNF(wt%) and minimum PTFE(wt%) that each reach target probability.'
+            : '목표 확률을 만족하는 최소 CNF(wt%)와 최소 PTFE(wt%)를 각각 역산합니다.',
+        equation:
+          'min wCNF such that P_CNF(wCNF) ≥ Ptarget;  min wPTFE such that P_PTFE(wPTFE) ≥ Ptarget',
+        value: `${locale === 'en' ? 'Target' : '목표'} ${fmtPercent(calculation.inverse.targetProbability)} → CNF ${minimumCnfWt}, PTFE ${minimumPtfeWt}`,
       },
     ]
   }
 
-  const walkthroughCases = [
-    {
-      key: 'current',
-      title: currentCaseTitle,
-      label: result.input.label[locale],
-      calculation: result,
-    },
-    ...comparison.map((entry) => ({
-      key: entry.input.id,
-      title: presetCaseTitle,
-      label: entry.input.label[locale],
-      calculation: entry,
-    })),
-  ]
+  const selectedWalkthroughCase = {
+    key: result.input.id,
+    label: result.input.label[locale],
+    calculation: result,
+  }
+  const selectedCaseTypeLabel =
+    result.input.id === customCaseTemplate.id ? currentCaseTitle : presetCaseTitle
 
   useEffect(
     () => () => {
@@ -2016,6 +2082,22 @@ function App() {
                     : fmtPercent(result.inverse.minCnfVolFraction)
                 }
               />
+              <ResultCard
+                label={minPtfeWtLabel}
+                value={
+                  result.inverse.minPtfeWeightFraction === null
+                    ? text.unreachable
+                    : fmtPercent(result.inverse.minPtfeWeightFraction)
+                }
+              />
+              <ResultCard
+                label={minPtfeVolLabel}
+                value={
+                  result.inverse.minPtfeVolFraction === null
+                    ? text.unreachable
+                    : fmtPercent(result.inverse.minPtfeVolFraction)
+                }
+              />
             </div>
 
             <div className="tables">
@@ -2081,6 +2163,8 @@ function App() {
                     <th>{text.conductivity}</th>
                     <th>{text.minCnfWt}</th>
                     <th>{text.minCnfVol}</th>
+                    <th>{minPtfeWtLabel}</th>
+                    <th>{minPtfeVolLabel}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2098,6 +2182,16 @@ function App() {
                         {entry.inverse.minCnfVolFraction === null
                           ? text.unreachable
                           : fmtPercent(entry.inverse.minCnfVolFraction)}
+                      </td>
+                      <td data-label={minPtfeWtLabel}>
+                        {entry.inverse.minPtfeWeightFraction === null
+                          ? text.unreachable
+                          : fmtPercent(entry.inverse.minPtfeWeightFraction)}
+                      </td>
+                      <td data-label={minPtfeVolLabel}>
+                        {entry.inverse.minPtfeVolFraction === null
+                          ? text.unreachable
+                          : fmtPercent(entry.inverse.minPtfeVolFraction)}
                       </td>
                     </tr>
                   ))}
@@ -2252,11 +2346,13 @@ function App() {
               <p>{logicSectionSubtitle}</p>
             </div>
             <div className="walkthrough-grid">
-              {walkthroughCases.map((item) => (
-                <section key={item.key} className="walkthrough-card">
+              <section
+                key={selectedWalkthroughCase.key}
+                className="walkthrough-card"
+                aria-label={selectedCaseTypeLabel}
+              >
                   <header className="walkthrough-card-header">
-                    <p className="walkthrough-card-type">{item.title}</p>
-                    <h3>{item.label}</h3>
+                    <h3>{selectedWalkthroughCase.label}</h3>
                     <p className="walkthrough-card-model">
                       {networkModelLabels[deferredAssumptions.networkModel][locale]} ·{' '}
                       {accessibleRuleLabels[deferredAssumptions.accessibleVolumeRule][locale]} ·{' '}
@@ -2264,9 +2360,9 @@ function App() {
                     </p>
                   </header>
                   <ol className="walkthrough-step-list">
-                    {buildWalkthroughSteps(item.calculation).map((step, index) => (
+                    {buildWalkthroughSteps(selectedWalkthroughCase.calculation).map((step, index) => (
                       <li
-                        key={`${item.key}-${step.title}`}
+                        key={`${selectedWalkthroughCase.key}-${step.title}`}
                         className="walkthrough-step-item"
                       >
                         <span className="walkthrough-step-index" aria-hidden>
@@ -2284,7 +2380,6 @@ function App() {
                     ))}
                   </ol>
                 </section>
-              ))}
             </div>
           </article>
         </section>

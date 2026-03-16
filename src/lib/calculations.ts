@@ -403,8 +403,32 @@ const buildInverseTemplate = (result: {
   porosity: result.input.porosity,
 })
 
+type InverseTarget = 'cnf' | 'ptfe'
+
+const buildInverseCandidate = (
+  template: Extract<CaseInput, { mode: 'presetMixed' }>,
+  target: InverseTarget,
+  targetWeightFraction: number,
+): Extract<CaseInput, { mode: 'presetMixed' }> => {
+  const cnfWeightFraction =
+    target === 'cnf' ? targetWeightFraction : template.cnfWeightFraction
+  const ptfeWeightFraction =
+    target === 'ptfe' ? targetWeightFraction : template.ptfeWeightFraction
+
+  return {
+    ...template,
+    cnfWeightFraction,
+    ptfeWeightFraction,
+    amWeightFraction: Math.max(
+      0,
+      1 - template.seWeightFraction - cnfWeightFraction - ptfeWeightFraction,
+    ),
+  }
+}
+
 const computeTargetProbability = (
-  cnfWeightFraction: number,
+  target: InverseTarget,
+  targetWeightFraction: number,
   template: Extract<CaseInput, { mode: 'presetMixed' }>,
   densities: DensitySet,
   geometry: GeometryInput,
@@ -412,47 +436,55 @@ const computeTargetProbability = (
 ): number => {
   const warnings: ValidationWarning[] = []
   const steps: DerivationStep[] = []
-  const candidate = {
-    ...template,
-    amWeightFraction: Math.max(
-      0,
-      1 - template.seWeightFraction - template.ptfeWeightFraction - cnfWeightFraction,
-    ),
-    cnfWeightFraction,
-  }
+  const candidate = buildInverseCandidate(template, target, targetWeightFraction)
   const composition = resolvePresetMixed(candidate, densities, warnings, steps)
-  const thresholds = deriveThresholds(geometry, assumptions)
+  const thresholds =
+    target === 'cnf'
+      ? deriveThresholds(geometry, assumptions)
+      : deriveThresholds(geometry, assumptions, geometry.ptfeAspectRatio)
+
   return deriveProbability(
-    composition.volumeFractions.cnf,
+    target === 'cnf'
+      ? composition.volumeFractions.cnf
+      : composition.volumeFractions.ptfe,
     composition.volumeFractions,
     thresholds,
     assumptions,
-    assumptions.accessibleVolumeRule,
+    target === 'cnf'
+      ? assumptions.accessibleVolumeRule
+      : assumptions.binderAccessibleVolumeRule,
   ).pCapped
 }
 
-const solveInverse = (
-  input: CaseInput,
-  composition: CompositionResolved,
+const solveInverseForTarget = (
+  targetComponent: InverseTarget,
+  template: Extract<CaseInput, { mode: 'presetMixed' }>,
   densities: DensitySet,
   geometry: GeometryInput,
   assumptions: ModelAssumptions,
-): { minCnfVolFraction: number | null; minCnfWeightFraction: number | null } => {
-  const template = buildInverseTemplate({ composition, input })
-  const hi = Math.max(
-    0.0001,
-    1 - template.seWeightFraction - template.ptfeWeightFraction - 1e-6,
-  )
-  const target = assumptions.targetProbability
+): { minVolFraction: number | null; minWeightFraction: number | null } => {
+  const fixedWeight =
+    targetComponent === 'cnf'
+      ? template.seWeightFraction + template.ptfeWeightFraction
+      : template.seWeightFraction + template.cnfWeightFraction
+
+  const upperBound = 1 - fixedWeight - 1e-6
+  if (upperBound <= 0) {
+    return { minVolFraction: null, minWeightFraction: null }
+  }
+  const hi = upperBound
+
+  const targetProbability = assumptions.targetProbability
   const hiValue = computeTargetProbability(
+    targetComponent,
     hi,
     template,
     densities,
     geometry,
     assumptions,
   )
-  if (hiValue < target) {
-    return { minCnfVolFraction: null, minCnfWeightFraction: null }
+  if (hiValue < targetProbability) {
+    return { minVolFraction: null, minWeightFraction: null }
   }
 
   let low = 0
@@ -460,13 +492,14 @@ const solveInverse = (
   for (let index = 0; index < 80; index += 1) {
     const mid = (low + high) / 2
     const probability = computeTargetProbability(
+      targetComponent,
       mid,
       template,
       densities,
       geometry,
       assumptions,
     )
-    if (probability >= target) {
+    if (probability >= targetProbability) {
       high = mid
     } else {
       low = mid
@@ -476,17 +509,57 @@ const solveInverse = (
   const warnings: ValidationWarning[] = []
   const steps: DerivationStep[] = []
   const solvedComposition = resolvePresetMixed(
-    {
-      ...template,
-      cnfWeightFraction: high,
-    },
+    buildInverseCandidate(template, targetComponent, high),
     densities,
     warnings,
     steps,
   )
+
   return {
-    minCnfVolFraction: solvedComposition.volumeFractions.cnf,
-    minCnfWeightFraction: solvedComposition.weightFractions.cnf,
+    minVolFraction:
+      targetComponent === 'cnf'
+        ? solvedComposition.volumeFractions.cnf
+        : solvedComposition.volumeFractions.ptfe,
+    minWeightFraction:
+      targetComponent === 'cnf'
+        ? solvedComposition.weightFractions.cnf
+        : solvedComposition.weightFractions.ptfe,
+  }
+}
+
+const solveInverse = (
+  input: CaseInput,
+  composition: CompositionResolved,
+  densities: DensitySet,
+  geometry: GeometryInput,
+  assumptions: ModelAssumptions,
+): {
+  minCnfVolFraction: number | null
+  minCnfWeightFraction: number | null
+  minPtfeVolFraction: number | null
+  minPtfeWeightFraction: number | null
+} => {
+  const template = buildInverseTemplate({ composition, input })
+  const cnfInverse = solveInverseForTarget(
+    'cnf',
+    template,
+    densities,
+    geometry,
+    assumptions,
+  )
+  const ptfeInverse = solveInverseForTarget(
+    'ptfe',
+    template,
+    densities,
+    geometry,
+    assumptions,
+  )
+
+  return {
+    minCnfVolFraction: cnfInverse.minVolFraction,
+    minCnfWeightFraction: cnfInverse.minWeightFraction,
+    minPtfeVolFraction: ptfeInverse.minVolFraction,
+    minPtfeWeightFraction: ptfeInverse.minWeightFraction,
   }
 }
 
@@ -609,6 +682,15 @@ export const calculateCase = (
       inverseSolved.minCnfVolFraction === null
         ? 'unreachable'
         : `${inverseSolved.minCnfWeightFraction?.toFixed(5)} wt / ${inverseSolved.minCnfVolFraction.toFixed(5)} vol`,
+    ),
+    createStep(
+      'Inverse PTFE solver',
+      '최소 PTFE 역산',
+      'Find minimum wPTFE such that P_PTFE >= Ptarget, then convert to VPTFE',
+      `Ptarget = ${assumptions.targetProbability.toFixed(4)}`,
+      inverseSolved.minPtfeVolFraction === null
+        ? 'unreachable'
+        : `${inverseSolved.minPtfeWeightFraction?.toFixed(5)} wt / ${inverseSolved.minPtfeVolFraction.toFixed(5)} vol`,
     ),
   )
 

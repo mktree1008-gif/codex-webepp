@@ -116,6 +116,38 @@ describe('calculateCase', () => {
     )
   })
 
+  test('inverse solver produces a PTFE loading that hits the target probability', () => {
+    const baseline = calculateCase(
+      presetCases[2].input,
+      defaultDensities,
+      defaultGeometry,
+      defaultModelAssumptions,
+    )
+
+    expect(baseline.inverse.minPtfeVolFraction).not.toBeNull()
+    expect(baseline.inverse.minPtfeWeightFraction).not.toBeNull()
+
+    const solved = calculateCase(
+      {
+        ...presetCases[2].input,
+        amWeightFraction:
+          1 -
+          presetCases[2].input.seWeightFraction -
+          presetCases[2].input.cnfWeightFraction -
+          (baseline.inverse.minPtfeWeightFraction ?? presetCases[2].input.ptfeWeightFraction),
+        ptfeWeightFraction:
+          baseline.inverse.minPtfeWeightFraction ?? presetCases[2].input.ptfeWeightFraction,
+      },
+      defaultDensities,
+      defaultGeometry,
+      defaultModelAssumptions,
+    )
+
+    expect(solved.binder.probability.pCapped).toBeGreaterThanOrEqual(
+      defaultModelAssumptions.targetProbability,
+    )
+  })
+
   test('warns when direct volume totals need normalization', () => {
     const result = calculateCase(
       {
