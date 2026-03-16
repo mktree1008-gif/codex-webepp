@@ -592,6 +592,7 @@ function App() {
   const railPointerIdRef = useRef<number | null>(null)
   const railStartClientYRef = useRef(0)
   const [isRailDragging, setIsRailDragging] = useState(false)
+  const [railDragProgress, setRailDragProgress] = useState<number | null>(null)
 
   const deferredInput = useDeferredValue(currentInput)
   const deferredDensities = useDeferredValue(densities)
@@ -1289,6 +1290,7 @@ function App() {
       : scrollNav.direction
   const jumpButtonLabel =
     jumpDirection === 'down' ? jumpToBottomLabel : jumpToTopLabel
+  const railProgress = railDragProgress ?? scrollNav.scrollProgress
   const jumpToResultsLabel =
     locale === 'en' ? 'Go to results' : '결과 바로 보기'
 
@@ -1331,7 +1333,16 @@ function App() {
     }
     const bounds = track.getBoundingClientRect()
     const relativeY = clientY - bounds.top
-    const nextProgress = bounds.height > 0 ? relativeY / bounds.height : 0
+    const nextProgress = clamp(bounds.height > 0 ? relativeY / bounds.height : 0, 0, 1)
+
+    if (railDragActiveRef.current) {
+      const documentElement = document.documentElement
+      const maxScroll = Math.max(documentElement.scrollHeight - window.innerHeight, 0)
+      setRailDragProgress(nextProgress)
+      window.scrollTo(0, nextProgress * maxScroll)
+      return
+    }
+
     scrollToProgress(nextProgress, 'auto')
   }
 
@@ -1392,9 +1403,6 @@ function App() {
 
   const handleThumbPointerMove = (event: PointerEvent<HTMLSpanElement>) => {
     if (!railDragActiveRef.current) {
-      if (Math.abs(event.clientY - railStartClientYRef.current) > 12) {
-        clearRailLongPressTimer()
-      }
       return
     }
 
@@ -1424,6 +1432,7 @@ function App() {
 
     railDragActiveRef.current = false
     railPointerIdRef.current = null
+    setRailDragProgress(null)
     setIsRailDragging(false)
   }
 
@@ -2116,7 +2125,7 @@ function App() {
                 className={`mobile-scroll-rail-thumb ${
                   isRailDragging ? 'is-dragging' : ''
                 }`}
-                style={{ top: `${scrollNav.scrollProgress * 100}%` }}
+                style={{ top: `${railProgress * 100}%` }}
                 onPointerDown={handleThumbPointerDown}
                 onPointerMove={handleThumbPointerMove}
                 onPointerUp={handleThumbPointerUp}

@@ -720,11 +720,15 @@ td code {
   touch-action: none;
   pointer-events: auto;
   cursor: grab;
+  will-change: transform, box-shadow, top;
+  transition:
+    transform 120ms ease-out,
+    box-shadow 120ms ease-out;
 }
 
 .mobile-scroll-rail-thumb.is-dragging {
-  transform: translate(-50%, -50%) scale(1.12);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.38);
+  transform: translate(-50%, -50%) scale(1.16);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.42);
   cursor: grabbing;
 }
 
