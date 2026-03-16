@@ -1154,6 +1154,9 @@ td code {
   .transport-tabs button {
     flex: 1 1 0;
     text-align: center;
+    font-size: 0.84rem;
+    padding: 0.5rem 0.45rem;
+    white-space: nowrap;
   }
 
   .logic-jump-button {

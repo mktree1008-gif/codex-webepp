@@ -318,7 +318,7 @@ type WalkthroughStep = {
   value: string
 }
 
-type TransportTab = 'ec' | 'ic' | 'ecic'
+type TransportTab = 'ec' | 'ic' | 'ecic' | 'reverse'
 
 type IBranchResult = {
   vAvailable: number
@@ -1152,7 +1152,7 @@ function App() {
     fixedPtfeWeightFraction: 0.02,
     targetProbability: 0.9999,
     porosity: 0.09,
-    seMode: 'fixed',
+    seMode: 'optimize',
     fixedSeWeightFraction: 0.24,
     seRangeMin: 0.21,
     seRangeMax: 0.35,
@@ -1268,8 +1268,14 @@ function App() {
   const text = textByLocale[locale]
   const transportTabLabel =
     locale === 'en'
-      ? { ec: 'EC', ic: 'IC', ecic: 'EC + IC' }
+      ? { ec: 'EC', ic: 'IC', ecic: 'EC + IC', reverse: 'PTFE Reverse' }
       : { ec: '전자전도(EC)', ic: '이온전도(IC)', ecic: '통합(EC+IC)' }
+  const normalizedTransportTabLabel: Record<TransportTab, string> = {
+    ec: transportTabLabel.ec,
+    ic: transportTabLabel.ic,
+    ecic: transportTabLabel.ecic,
+    reverse: locale === 'en' ? 'PTFE Reverse' : 'PTFE 역설계',
+  }
   const ionicResultsLabel =
     locale === 'en'
       ? 'Ionic transport results (SE network)'
@@ -2938,21 +2944,21 @@ function App() {
       </header>
 
       <nav className="transport-tabs" aria-label="Transport model tabs">
-        {(['ec', 'ic', 'ecic'] as const).map((tab) => (
+        {(['ec', 'ic', 'ecic', 'reverse'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
             className={transportTab === tab ? 'active' : ''}
             onClick={() => setTransportTab(tab)}
           >
-            {transportTabLabel[tab]}
+            {normalizedTransportTabLabel[tab]}
           </button>
         ))}
       </nav>
 
       <main className="workspace">
         <section className="sidebar">
-          <article className="panel">
+              <article className="panel">
             <div className="panel-heading">
               <h2>{text.caseSetup}</h2>
               <p>{text.summaryNote}</p>
@@ -3335,11 +3341,12 @@ function App() {
                 </>
               )}
             </div>
-          </article>
+              </article>
         </section>
 
         <section className="content">
-          <article className="panel" id="results-panel">
+          {transportTab !== 'reverse' ? (
+            <article className="panel" id="results-panel">
             <div className="panel-heading panel-heading--row">
               <h2>
                 {transportTab === 'ec'
@@ -3537,9 +3544,10 @@ function App() {
                 </div>
               </div>
             </div>
-          </article>
+            </article>
+          ) : null}
 
-          {transportTab === 'ec' ? (
+          {transportTab === 'reverse' ? (
             <article className="panel">
               <div className="panel-heading panel-heading--row">
                 <div>
@@ -3737,7 +3745,7 @@ function App() {
             </article>
           ) : null}
 
-          {transportTab === 'ec' ? (
+          {transportTab === 'reverse' ? (
             <article className="panel" id="reverse-design-explanation-section">
               <div className="panel-heading">
                 <h2>{reverseExplanationTitle}</h2>
@@ -3804,6 +3812,8 @@ function App() {
             </article>
           ) : null}
 
+          {transportTab !== 'reverse' ? (
+            <>
           <article className="panel">
             <div className="panel-heading">
               <h2>
@@ -4382,6 +4392,8 @@ function App() {
                 </section>
             </div>
           </article>
+            </>
+          ) : null}
         </section>
       </main>
       {showMobileScrollNav ? (
