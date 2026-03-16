@@ -362,6 +362,12 @@ type PtfeModelSpec = {
   vthScale: number
 }
 
+type CnfRuleSpec = {
+  label: Record<Locale, string>
+  description: Record<Locale, string>
+  availableExpression: string
+}
+
 const ptfeModelSpecs: Record<PtfeModelMode, PtfeModelSpec> = {
   fibril_segregated: {
     label: {
@@ -430,6 +436,42 @@ const ptfeModelSpecs: Record<PtfeModelMode, PtfeModelSpec> = {
     networkModel: 'segregated',
     binderRule: 'exclude_am_se',
     vthScale: 1,
+  },
+}
+
+const cnfAccessibleRuleSpecs: Record<AccessibleVolumeRule, CnfRuleSpec> = {
+  full_electrode: {
+    label: {
+      en: 'Full electrode',
+      ko: '전극 전체 기준',
+    },
+    description: {
+      en: 'CNF is assumed to disperse across the whole electrode volume (random baseline).',
+      ko: 'CNF가 전극 전체 부피에 분산된다고 가정하는 가장 단순한 baseline 모델입니다.',
+    },
+    availableExpression: 'Vavailable = 1',
+  },
+  exclude_am: {
+    label: {
+      en: 'Exclude AM only',
+      ko: 'AM만 제외',
+    },
+    description: {
+      en: 'CNF cannot enter AM particles, so it occupies only non-AM space.',
+      ko: 'CNF가 활물질(AM) 내부에는 존재하지 못한다고 보고, AM을 제외한 공간만 가용 공간으로 둡니다.',
+    },
+    availableExpression: 'Vavailable = 1 - VAM',
+  },
+  exclude_am_se: {
+    label: {
+      en: 'Exclude AM + SE',
+      ko: 'AM+SE 제외',
+    },
+    description: {
+      en: 'CNF is confined to AM/SE interstitial space (strong segregated-concentration assumption).',
+      ko: 'CNF가 AM/SE 입자 사이의 좁은 간극에만 존재한다고 가정하는 강한 segregated 모델입니다.',
+    },
+    availableExpression: 'Vavailable = 1 - VAM - VSE',
   },
 }
 
@@ -825,6 +867,23 @@ function App() {
 
   const ptfeModelLabel = locale === 'en' ? 'PTFE model selector' : 'PTFE 모델 선택'
   const ptfeComparisonJumpLabel = locale === 'en' ? '*Comparison' : '*비교 보기'
+  const cnfComparisonSectionTitle =
+    locale === 'en'
+      ? 'CNF accessible-volume model comparison'
+      : 'CNF 가용부피 모델 비교'
+  const cnfComparisonSectionSubtitle =
+    locale === 'en'
+      ? 'This panel explains why CNF minimum loading changes when available-volume assumptions change (Full electrode vs Exclude AM vs Exclude AM+SE).'
+      : 'CNF 최소 필요량이 가용부피 가정(전극 전체 / AM 제외 / AM+SE 제외)에 따라 왜 달라지는지 비교합니다.'
+  const cnfComparisonModelHeader = locale === 'en' ? 'CNF model' : 'CNF 모델'
+  const cnfComparisonAssumptionHeader =
+    locale === 'en' ? 'Assumption summary' : '가정 요약'
+  const cnfComparisonAvailableHeader =
+    locale === 'en' ? 'Available-volume rule' : '가용부피 식'
+  const cnfComparisonProbabilityHeader =
+    locale === 'en' ? 'Percolation probability' : '퍼콜레이션 확률'
+  const cnfComparisonConductivityHeader =
+    locale === 'en' ? 'Conductivity level' : '전도도 수준'
   const ptfeComparisonSectionTitle =
     locale === 'en'
       ? 'PTFE model comparison (why minima differ)'
@@ -1480,6 +1539,27 @@ function App() {
   const ptfeComparisonByCaseId = new Map(
     presetCases.map((preset) => [preset.id, evaluatePtfeModelCase(preset.input, ptfeModelMode)] as const),
   )
+  const cnfRuleComparisonRows = (Object.keys(cnfAccessibleRuleSpecs) as AccessibleVolumeRule[]).map(
+    (rule) => {
+      const modelResult = calculateCase(
+        deferredInput,
+        deferredDensities,
+        deferredGeometry,
+        {
+          ...deferredAssumptions,
+          accessibleVolumeRule: rule,
+        },
+      )
+      return {
+        rule,
+        spec: cnfAccessibleRuleSpecs[rule],
+        probability: modelResult.probability.pCapped,
+        conductivity: modelResult.probability.sigma,
+        minCnfWt: modelResult.inverse.minCnfWeightFraction,
+        minCnfVol: modelResult.inverse.minCnfVolFraction,
+      }
+    },
+  )
   const ptfeModelComparisonRows = (Object.keys(ptfeModelSpecs) as PtfeModelMode[]).map(
     (mode) => {
       const spec = ptfeModelSpecs[mode]
@@ -1822,7 +1902,9 @@ function App() {
   }
 
   const scrollToPtfeComparison = () => {
-    const panel = document.getElementById('ptfe-model-comparison-section')
+    const panel =
+      document.getElementById('cnf-model-comparison-section') ??
+      document.getElementById('ptfe-model-comparison-section')
     if (!panel) {
       return
     }
@@ -3059,6 +3141,137 @@ function App() {
           </article>
 
 
+
+          <article className="panel" id="cnf-model-comparison-section">
+            <div className="panel-heading">
+              <h2>{cnfComparisonSectionTitle}</h2>
+              <p>{cnfComparisonSectionSubtitle}</p>
+            </div>
+            <div className="ptfe-comparison-callout">
+              <strong>{cnfAccessibleRuleSpecs[assumptions.accessibleVolumeRule].label[locale]}</strong>
+              <p>{cnfAccessibleRuleSpecs[assumptions.accessibleVolumeRule].description[locale]}</p>
+            </div>
+            <div className="table-card">
+              <table className="responsive-table">
+                <thead>
+                  <tr>
+                    <th>{cnfComparisonModelHeader}</th>
+                    <th>{cnfComparisonAssumptionHeader}</th>
+                    <th>{cnfComparisonAvailableHeader}</th>
+                    <th>{cnfComparisonProbabilityHeader}</th>
+                    <th>{cnfComparisonConductivityHeader}</th>
+                    <th>{text.minCnfWt}</th>
+                    <th>{text.minCnfVol}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cnfRuleComparisonRows.map((row) => (
+                    <tr
+                      key={row.rule}
+                      className={
+                        row.rule === assumptions.accessibleVolumeRule
+                          ? 'ptfe-comparison-row-active'
+                          : ''
+                      }
+                    >
+                      <td data-label={cnfComparisonModelHeader}>
+                        {row.spec.label[locale]}
+                        {row.rule === assumptions.accessibleVolumeRule ? (
+                          <span className="ptfe-comparison-selected-badge">
+                            {locale === 'en' ? 'Selected' : '선택됨'}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td data-label={cnfComparisonAssumptionHeader}>
+                        {row.spec.description[locale]}
+                      </td>
+                      <td data-label={cnfComparisonAvailableHeader}>
+                        <code>{row.spec.availableExpression}</code>
+                      </td>
+                      <td data-label={cnfComparisonProbabilityHeader}>
+                        {fmtPercent(row.probability)}
+                      </td>
+                      <td data-label={cnfComparisonConductivityHeader}>
+                        {fmtNumber(row.conductivity, 2)} S/m
+                      </td>
+                      <td data-label={text.minCnfWt}>
+                        {row.minCnfWt === null ? text.unreachable : fmtPercent(row.minCnfWt)}
+                      </td>
+                      <td data-label={text.minCnfVol}>
+                        {row.minCnfVol === null ? text.unreachable : fmtPercent(row.minCnfVol)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="ptfe-equation-grid">
+              <div className="ptfe-equation-card">
+                <h3>{locale === 'en' ? 'Core equations (book style)' : '핵심 식 (book 형식)'}</h3>
+                <div className="equation-pretty">
+                  <BookEquation
+                    lhs={
+                      <>
+                        V<sub>eff,CNF</sub>
+                      </>
+                    }
+                    rhs={
+                      <>
+                        V<sub>CNF</sub> / V<sub>available</sub>
+                      </>
+                    }
+                  />
+                </div>
+                <div className="equation-pretty">
+                  <BookEquation
+                    lhs={
+                      <>
+                        P
+                      </>
+                    }
+                    rhs={
+                      <>
+                        min(P<sub>0</sub> × max(V<sub>eff,CNF</sub> - V<sub>th</sub>, 0)
+                        <sup>β</sup>, 1)
+                      </>
+                    }
+                  />
+                </div>
+                <div className="equation-pretty">
+                  <BookEquation
+                    lhs={
+                      <>
+                        min w<sub>CNF</sub>
+                      </>
+                    }
+                    rhs={
+                      <>
+                        argmin<sub>w</sub>{' '}
+                        {'{'}P(w) ≥ P<sub>target</sub>{'}'}
+                      </>
+                    }
+                  />
+                </div>
+              </div>
+              <div className="ptfe-equation-card">
+                <h3>{locale === 'en' ? 'Code-style assumptions' : '코드형 가정 정리'}</h3>
+                <div className="equation-code">
+                  <code>{'Full electrode: Vavailable = 1'}</code>
+                </div>
+                <div className="equation-code">
+                  <code>{'Exclude AM: Vavailable = 1 - VAM'}</code>
+                </div>
+                <div className="equation-code">
+                  <code>{'Exclude AM+SE: Vavailable = 1 - VAM - VSE'}</code>
+                </div>
+                <p className="ptfe-equation-note">
+                  {locale === 'en'
+                    ? 'As Vavailable gets smaller, Veff,CNF increases for the same CNF loading, so percolation is reached with less CNF.'
+                    : '같은 CNF 함량에서도 Vavailable이 작아질수록 Veff,CNF가 커지므로 퍼콜레이션 달성이 더 쉬워집니다.'}
+                </p>
+              </div>
+            </div>
+          </article>
 
           <article className="panel" id="ptfe-model-comparison-section">
             <div className="panel-heading">
