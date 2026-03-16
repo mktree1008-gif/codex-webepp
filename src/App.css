@@ -243,23 +243,24 @@
 }
 
 .ptfe-comparison-jump-button {
-  min-height: 10px;
+  min-height: 48px;
   border: 1px solid rgba(241, 113, 56, 0.55);
-  border-radius: 10px;
-  width: 33%;
-  min-width: 108px;
-  max-width: 160px;
-  justify-self: start;
+  border-radius: 14px;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  justify-self: stretch;
   align-self: end;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0.1rem 0.5rem;
+  padding: 0.82rem 0.95rem;
   font: inherit;
-  font-size: 0.78rem;
-  line-height: 1.05;
+  font-size: 0.84rem;
+  line-height: 1;
   letter-spacing: 0;
   font-weight: 700;
+  white-space: nowrap;
   color: #7a3411;
   background: rgba(241, 113, 56, 0.16);
   box-shadow: 0 8px 18px rgba(241, 113, 56, 0.2);
