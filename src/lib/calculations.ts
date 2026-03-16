@@ -90,6 +90,19 @@ const getAccessibleVolume = (
   }
 }
 
+const toSolidBasisFractions = (
+  volumes: FractionMap,
+  totalSolidVolume: number,
+): FractionMap => {
+  const basis = Math.max(totalSolidVolume, 1e-9)
+  return {
+    am: volumes.am / basis,
+    se: volumes.se / basis,
+    cnf: volumes.cnf / basis,
+    ptfe: volumes.ptfe / basis,
+  }
+}
+
 const deriveThresholds = (
   geometry: GeometryInput,
   assumptions: ModelAssumptions,
@@ -373,9 +386,13 @@ const deriveBinder = (
   assumptions: ModelAssumptions,
 ): BinderResult => {
   const thresholds = deriveThresholds(geometry, assumptions, geometry.ptfeAspectRatio)
-  const probability = deriveProbability(
-    composition.volumeFractions.ptfe,
+  const solidBasisFractions = toSolidBasisFractions(
     composition.volumeFractions,
+    composition.totalSolidVolume,
+  )
+  const probability = deriveProbability(
+    solidBasisFractions.ptfe,
+    solidBasisFractions,
     thresholds,
     assumptions,
     assumptions.binderAccessibleVolumeRule,
@@ -443,11 +460,19 @@ const computeTargetProbability = (
       ? deriveThresholds(geometry, assumptions)
       : deriveThresholds(geometry, assumptions, geometry.ptfeAspectRatio)
 
+  const probabilityVolumes =
+    target === 'cnf'
+      ? composition.volumeFractions
+      : toSolidBasisFractions(
+          composition.volumeFractions,
+          composition.totalSolidVolume,
+        )
+
   return deriveProbability(
     target === 'cnf'
-      ? composition.volumeFractions.cnf
-      : composition.volumeFractions.ptfe,
-    composition.volumeFractions,
+      ? probabilityVolumes.cnf
+      : probabilityVolumes.ptfe,
+    probabilityVolumes,
     thresholds,
     assumptions,
     target === 'cnf'
