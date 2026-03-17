@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { calculateCase } from './calculations'
+import { calculateCase, calculateIonicBranch } from './calculations'
 import {
   defaultDensities,
   defaultGeometry,
@@ -166,5 +166,48 @@ describe('calculateCase', () => {
     )
 
     expect(result.warnings.some((warning) => warning.code === 'direct_volume_scaled')).toBe(true)
+  })
+
+  test('computes ionic conductivity with tau/f_conn coupling from the shared ionic branch', () => {
+    const base = calculateCase(
+      presetCases[1].input,
+      defaultDensities,
+      defaultGeometry,
+      defaultModelAssumptions,
+    )
+    const ionic = calculateIonicBranch(
+      base,
+      defaultDensities,
+      defaultGeometry,
+      defaultModelAssumptions,
+    )
+
+    expect(ionic.pCapped).toBeGreaterThanOrEqual(0)
+    expect(ionic.pCapped).toBeLessThanOrEqual(1)
+    expect(ionic.tau).toBeGreaterThan(1)
+    expect(ionic.sigma).toBeGreaterThanOrEqual(0)
+  })
+
+  test('returns unreachable ionic inverse when sigma_ion target is unrealistically high', () => {
+    const assumptions = {
+      ...defaultModelAssumptions,
+      sigmaIonTarget: 10,
+      targetProbability: 0.5,
+    }
+    const base = calculateCase(
+      presetCases[1].input,
+      defaultDensities,
+      defaultGeometry,
+      assumptions,
+    )
+    const ionic = calculateIonicBranch(
+      base,
+      defaultDensities,
+      defaultGeometry,
+      assumptions,
+    )
+
+    expect(ionic.inverse.minSeWeightFraction).toBeNull()
+    expect(ionic.inverse.minSeVolFraction).toBeNull()
   })
 })

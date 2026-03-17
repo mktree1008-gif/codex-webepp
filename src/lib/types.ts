@@ -20,6 +20,8 @@ export type AccessibleVolumeRule =
   | 'exclude_am_se'
   | 'full_electrode'
 
+export type IonicConnectionMode = 'p_ion' | 'unity'
+
 export type DensitySet = {
   am: number
   se: number
@@ -32,6 +34,7 @@ export type GeometryInput = {
   ptfeAspectRatio: number
   amParticleSizeUm: number
   seParticleSizeUm: number
+  seAspectRatio: number
   additiveSizeUm: number
   ptfeFibrilSizeUm: number
 }
@@ -49,6 +52,12 @@ export type ModelAssumptions = {
   directVthRandom: number
   directVthSegregated: number
   targetProbability: number
+  sigmaETarget: number
+  sigmaIonTarget: number
+  sigmaSe0: number
+  ionicAlpha: number
+  tauModelExponent: number
+  fConnMode: IonicConnectionMode
 }
 
 type BaseCaseInput = {
@@ -162,4 +171,79 @@ export type CalculationResult = {
   inverse: InverseSolveResult
   derivation: DerivationStep[]
   warnings: ValidationWarning[]
+}
+
+export type IonicBranchResult = {
+  vAvailable: number
+  veff: number
+  diff: number
+  pRaw: number
+  pCapped: number
+  sigma: number
+  thresholds: ThresholdSet
+  tau: number
+  fConn: number
+  inverse: {
+    minSeWeightFraction: number | null
+    minSeVolFraction: number | null
+  }
+}
+
+export type FormulationEngineConfig = {
+  cnfWeightFraction: number
+  ptfeWeightFraction: number
+  targetProbability: number
+  sigmaETarget: number
+  sigmaIonTarget: number
+  porosity: number
+  seMinWeightFraction: number
+  seMaxWeightFraction: number
+  seStep: number
+  mapCnfMin: number
+  mapCnfMax: number
+  mapPtfeMin: number
+  mapPtfeMax: number
+  mapStep: number
+}
+
+export type FormulationCandidateMetrics = {
+  amWeightFraction: number
+  seWeightFraction: number
+  cnfWeightFraction: number
+  ptfeWeightFraction: number
+  pe: number
+  pb: number
+  pion: number
+  sigmaE: number
+  sigmaIon: number
+  scoreBase: number
+  scoreFinal: number
+  feasible: boolean
+  marginPe: number
+  marginPb: number
+  marginSigmaE: number
+  marginSigmaIon: number
+  ecThreshold: number
+  ptfeThreshold: number
+  ionThreshold: number
+}
+
+export type FormulationRecommendation = {
+  best: FormulationCandidateMetrics | null
+  candidates: FormulationCandidateMetrics[]
+  evaluatedCount: number
+  feasibleCount: number
+}
+
+export type FormulationMapPoint = {
+  cnfWeightFraction: number
+  ptfeWeightFraction: number
+  score: number | null
+  feasible: boolean
+}
+
+export type FormulationMapData = {
+  points: FormulationMapPoint[]
+  cnfValues: number[]
+  ptfeValues: number[]
 }

@@ -8,6 +8,7 @@ import type {
   DerivationStep,
   FractionMap,
   GeometryInput,
+  IonicBranchResult,
   ModelAssumptions,
   ProbabilityResult,
   ThresholdSet,
@@ -413,6 +414,64 @@ const deriveBinder = (
   }
 }
 
+const deriveIonicThresholds = (
+  geometry: GeometryInput,
+  assumptions: ModelAssumptions,
+): ThresholdSet => {
+  const amParticle = Math.max(geometry.amParticleSizeUm, 1e-9)
+  const seParticle = Math.max(geometry.seParticleSizeUm, 1e-9)
+  const seAspectRatio = Math.max(geometry.seAspectRatio, 1e-9)
+
+  const random =
+    assumptions.thresholdMode === 'direct'
+      ? assumptions.directVthRandom
+      : assumptions.thresholdMode === 'ar'
+        ? safeDivide(1, seAspectRatio)
+        : 0.3 * safeDivide(1, seAspectRatio) * safeDivide(seParticle, amParticle)
+
+  const segregated =
+    assumptions.thresholdMode === 'direct'
+      ? assumptions.directVthSegregated
+      : random / (1 + safeDivide(amParticle, seParticle))
+
+  const active = assumptions.networkModel === 'segregated' ? segregated : random
+  return { random, segregated, active }
+}
+
+const deriveIonicCore = (
+  calculation: CalculationResult,
+  geometry: GeometryInput,
+  assumptions: ModelAssumptions,
+) => {
+  const solidVolume = Math.max(calculation.composition.totalSolidVolume, 1e-9)
+  const seSolidFraction = calculation.composition.volumeFractions.se / solidVolume
+  const thresholds = deriveIonicThresholds(geometry, assumptions)
+  const diff = Math.max(0, seSolidFraction - thresholds.active)
+  const pRaw = assumptions.p0 * Math.pow(diff, assumptions.beta)
+  const pCapped = Math.min(1, pRaw)
+  const fConn = assumptions.fConnMode === 'unity' ? 1 : pCapped
+  const tau = Math.pow(
+    Math.max(1 - calculation.input.porosity, 1e-9),
+    -assumptions.tauModelExponent,
+  )
+  const sigma =
+    assumptions.sigmaSe0 *
+    fConn *
+    Math.pow(Math.max(seSolidFraction, 0), assumptions.ionicAlpha) /
+    Math.max(tau, 1e-9)
+
+  return {
+    seSolidFraction,
+    diff,
+    pRaw,
+    pCapped,
+    sigma,
+    thresholds,
+    tau,
+    fConn,
+  }
+}
+
 const buildInverseTemplate = (result: {
   composition: CompositionResolved
   input: CaseInput
@@ -751,5 +810,109 @@ export const calculateCase = (
     },
     derivation,
     warnings,
+  }
+}
+
+export const calculateIonicBranch = (
+  calculation: CalculationResult,
+  densities: DensitySet,
+  geometry: GeometryInput,
+  assumptions: ModelAssumptions,
+  options?: {
+    targetProbability?: number
+    sigmaIonTarget?: number
+    skipInverse?: boolean
+  },
+): IonicBranchResult => {
+  const ionicCore = deriveIonicCore(calculation, geometry, assumptions)
+  const targetProbability = options?.targetProbability ?? assumptions.targetProbability
+  const sigmaIonTarget = options?.sigmaIonTarget ?? assumptions.sigmaIonTarget
+
+  const solveMinimumSe = (): {
+    minSeWeightFraction: number | null
+    minSeVolFraction: number | null
+  } => {
+    if (options?.skipInverse) {
+      return { minSeWeightFraction: null, minSeVolFraction: null }
+    }
+
+    const template = {
+      seWeightFraction: calculation.composition.weightFractions.se,
+      cnfWeightFraction: calculation.composition.weightFractions.cnf,
+      ptfeWeightFraction: calculation.composition.weightFractions.ptfe,
+    }
+
+    const upperBound =
+      1 - template.cnfWeightFraction - template.ptfeWeightFraction - 1e-6
+    if (upperBound <= 0) {
+      return { minSeWeightFraction: null, minSeVolFraction: null }
+    }
+
+    const evaluateSe = (seWeightFraction: number) => {
+      const candidate = calculateCase(
+        {
+          id: `${calculation.input.id}-se-inverse`,
+          label: calculation.input.label,
+          mode: 'presetMixed',
+          porosity: calculation.input.porosity,
+          seWeightFraction,
+          cnfWeightFraction: template.cnfWeightFraction,
+          ptfeWeightFraction: template.ptfeWeightFraction,
+          amWeightFraction: Math.max(
+            0,
+            1 - seWeightFraction - template.cnfWeightFraction - template.ptfeWeightFraction,
+          ),
+        },
+        densities,
+        geometry,
+        assumptions,
+      )
+      return {
+        candidate,
+        ionic: deriveIonicCore(candidate, geometry, assumptions),
+      }
+    }
+
+    const hiResult = evaluateSe(upperBound).ionic
+    if (
+      hiResult.pCapped < targetProbability ||
+      hiResult.sigma < sigmaIonTarget
+    ) {
+      return { minSeWeightFraction: null, minSeVolFraction: null }
+    }
+
+    let low = 0
+    let high = upperBound
+    for (let iteration = 0; iteration < 70; iteration += 1) {
+      const mid = (low + high) / 2
+      const ionic = evaluateSe(mid).ionic
+      if (
+        ionic.pCapped >= targetProbability &&
+        ionic.sigma >= sigmaIonTarget
+      ) {
+        high = mid
+      } else {
+        low = mid
+      }
+    }
+
+    const solved = evaluateSe(high).candidate
+    return {
+      minSeWeightFraction: solved.composition.weightFractions.se,
+      minSeVolFraction: solved.composition.volumeFractions.se,
+    }
+  }
+
+  return {
+    vAvailable: 1,
+    veff: ionicCore.seSolidFraction,
+    diff: ionicCore.diff,
+    pRaw: ionicCore.pRaw,
+    pCapped: ionicCore.pCapped,
+    sigma: ionicCore.sigma,
+    thresholds: ionicCore.thresholds,
+    tau: ionicCore.tau,
+    fConn: ionicCore.fConn,
+    inverse: solveMinimumSe(),
   }
 }

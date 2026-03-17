@@ -53,4 +53,13 @@ describe('App', () => {
 
     expect(screen.getByText('WT% sum should be 100%')).toBeInTheDocument()
   })
+
+  test('opens formulation engine tab and renders recommendation section', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: 'Formulation Engine' }))
+    expect(screen.getByText('Integrated formulation engine')).toBeInTheDocument()
+    expect(screen.getByText('CNF/PTFE neighborhood score heatmap')).toBeInTheDocument()
+  })
 })

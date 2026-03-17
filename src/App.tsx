@@ -11,7 +11,8 @@ import {
   type ReactNode,
 } from 'react'
 import './App.css'
-import { calculateCase } from './lib/calculations'
+import { calculateCase, calculateIonicBranch } from './lib/calculations'
+import { buildFormulationMap, runFormulationEngine } from './lib/formulationEngine'
 import {
   accessibleRuleLabels,
   compositionModeLabels,
@@ -35,7 +36,11 @@ import type {
   CaseInput,
   CompositionMode,
   DensitySet,
+  FormulationCandidateMetrics,
+  FormulationEngineConfig,
+  FormulationMapData,
   GeometryInput,
+  IonicBranchResult,
   Locale,
   ModelAssumptions,
   ValidationWarning,
@@ -318,25 +323,7 @@ type WalkthroughStep = {
   value: string
 }
 
-type TransportTab = 'ec' | 'ic' | 'ecic' | 'reverse'
-
-type IBranchResult = {
-  vAvailable: number
-  veff: number
-  diff: number
-  pRaw: number
-  pCapped: number
-  sigma: number
-  thresholds: {
-    random: number
-    segregated: number
-    active: number
-  }
-  inverse: {
-    minSeWeightFraction: number | null
-    minSeVolFraction: number | null
-  }
-}
+type TransportTab = 'ec' | 'ic' | 'ecic' | 'reverse' | 'formulation'
 
 type DualRecommendation = {
   feasible: boolean
@@ -743,6 +730,7 @@ type ReverseDesignCandidate = {
   additiveFraction: number
   margin: number
   calculation: CalculationResult
+  ionic: IonicBranchResult
 }
 
 type ReverseDesignResult = {
@@ -863,9 +851,25 @@ const runReverseDesign = (
         geometry,
         forcedAssumptions,
       )
+      const candidateIonic = calculateIonicBranch(
+        candidateCalculation,
+        densities,
+        geometry,
+        forcedAssumptions,
+        {
+          targetProbability: config.targetProbability,
+          sigmaIonTarget: forcedAssumptions.sigmaIonTarget,
+          skipInverse: true,
+        },
+      )
       evaluatedCount += 1
 
-      if (candidateCalculation.probability.pCapped < config.targetProbability) {
+      if (
+        candidateCalculation.probability.pCapped < config.targetProbability ||
+        candidateCalculation.probability.sigma < forcedAssumptions.sigmaETarget ||
+        candidateIonic.pCapped < config.targetProbability ||
+        candidateIonic.sigma < forcedAssumptions.sigmaIonTarget
+      ) {
         return
       }
 
@@ -876,8 +880,14 @@ const runReverseDesign = (
         cnfWeightFraction,
         ptfeWeightFraction: fixedPtfeApplied,
         additiveFraction: cnfWeightFraction + fixedPtfeApplied,
-        margin: candidateCalculation.probability.diff,
+        margin: Math.min(
+          candidateCalculation.probability.pCapped - config.targetProbability,
+          candidateCalculation.probability.sigma - forcedAssumptions.sigmaETarget,
+          candidateIonic.pCapped - config.targetProbability,
+          candidateIonic.sigma - forcedAssumptions.sigmaIonTarget,
+        ),
         calculation: candidateCalculation,
+        ionic: candidateIonic,
       }
 
       if (!best) {
@@ -962,8 +972,23 @@ const buildReversePhaseMap = (
         ptfe: ptfeWeightFraction,
       })
       const calculation = calculateCase(caseInput, densities, geometry, forcedAssumptions)
-      const probability = calculation.probability.pCapped
-      const feasible = probability >= config.targetProbability
+      const ionic = calculateIonicBranch(
+        calculation,
+        densities,
+        geometry,
+        forcedAssumptions,
+        {
+          targetProbability: config.targetProbability,
+          sigmaIonTarget: forcedAssumptions.sigmaIonTarget,
+          skipInverse: true,
+        },
+      )
+      const probability = Math.min(calculation.probability.pCapped, ionic.pCapped)
+      const feasible =
+        calculation.probability.pCapped >= config.targetProbability &&
+        calculation.probability.sigma >= forcedAssumptions.sigmaETarget &&
+        ionic.pCapped >= config.targetProbability &&
+        ionic.sigma >= forcedAssumptions.sigmaIonTarget
       points.push({
         cnfWeightFraction,
         ptfeWeightFraction,
@@ -990,12 +1015,16 @@ const buildReversePhaseMap = (
   }
 }
 
-const phaseMapColor = (probability: number | null, targetProbability: number) => {
+const phaseMapColor = (
+  probability: number | null,
+  targetProbability: number,
+  feasible: boolean,
+) => {
   if (probability === null) {
     return 'rgba(34, 46, 38, 0.08)'
   }
   const clamped = clamp(probability, 0, 1)
-  if (clamped >= targetProbability) {
+  if (feasible && clamped >= targetProbability) {
     return `rgba(52, 127, 94, ${0.2 + 0.6 * clamped})`
   }
   return `rgba(241, 113, 56, ${0.14 + 0.5 * clamped})`
@@ -1033,8 +1062,8 @@ function ReversePhaseMap({
 
   const legendText =
     locale === 'en'
-      ? `Green region: P ≥ ${fmtPercent(targetProbability)}`
-      : `초록 영역: P ≥ ${fmtPercent(targetProbability)}`
+      ? `Green region: all EC+IC constraints satisfied (P target ${fmtPercent(targetProbability)})`
+      : `초록 영역: EC+IC 제약 모두 만족 (P 목표 ${fmtPercent(targetProbability)})`
 
   return (
     <div className="phase-map-card">
@@ -1060,7 +1089,7 @@ function ReversePhaseMap({
               y={yScale(point.ptfeWeightFraction) - cellHeight / 2}
               width={cellWidth + 0.4}
               height={cellHeight + 0.4}
-              fill={phaseMapColor(point.probability, targetProbability)}
+              fill={phaseMapColor(point.probability, targetProbability, point.feasible)}
               className={point.feasible ? 'phase-map-cell--feasible' : 'phase-map-cell'}
             />
           </g>
@@ -1119,6 +1148,288 @@ function ReversePhaseMap({
   )
 }
 
+const scoreHeatColor = (value: number | null) => {
+  if (value === null) {
+    return 'rgba(34, 46, 38, 0.08)'
+  }
+  const normalized = clamp(value, 0, 1)
+  if (normalized >= 0.8) {
+    return `rgba(52, 127, 94, ${0.2 + 0.65 * normalized})`
+  }
+  return `rgba(241, 113, 56, ${0.12 + 0.5 * normalized})`
+}
+
+function FormulationCnfpMap({
+  data,
+  locale,
+}: {
+  data: FormulationMapData
+  locale: Locale
+}) {
+  const width = 760
+  const height = 360
+  const margin = { top: 24, right: 18, bottom: 52, left: 66 }
+  const plotWidth = width - margin.left - margin.right
+  const plotHeight = height - margin.top - margin.bottom
+  const cnfMin = data.cnfValues[0] ?? 0
+  const cnfMax = data.cnfValues[data.cnfValues.length - 1] ?? 1
+  const ptfeMin = data.ptfeValues[0] ?? 0
+  const ptfeMax = data.ptfeValues[data.ptfeValues.length - 1] ?? 1
+  const xScale = (value: number) =>
+    margin.left + ((value - cnfMin) / Math.max(cnfMax - cnfMin, 1e-9)) * plotWidth
+  const yScale = (value: number) =>
+    margin.top + (1 - (value - ptfeMin) / Math.max(ptfeMax - ptfeMin, 1e-9)) * plotHeight
+  const cellWidth = plotWidth / Math.max(data.cnfValues.length, 1)
+  const cellHeight = plotHeight / Math.max(data.ptfeValues.length, 1)
+
+  return (
+    <div className="phase-map-card">
+      <svg viewBox={`0 0 ${width} ${height}`} className="phase-map-svg" role="img">
+        {data.points.map((point) => (
+          <g key={`${point.cnfWeightFraction}-${point.ptfeWeightFraction}`}>
+            <rect
+              x={xScale(point.cnfWeightFraction) - cellWidth / 2}
+              y={yScale(point.ptfeWeightFraction) - cellHeight / 2}
+              width={cellWidth + 0.4}
+              height={cellHeight + 0.4}
+              fill={scoreHeatColor(point.score)}
+              className={point.feasible ? 'phase-map-cell--feasible' : 'phase-map-cell'}
+            />
+          </g>
+        ))}
+        <line
+          x1={margin.left}
+          x2={width - margin.right}
+          y1={height - margin.bottom}
+          y2={height - margin.bottom}
+          className="curve-axis"
+        />
+        <line
+          x1={margin.left}
+          x2={margin.left}
+          y1={margin.top}
+          y2={height - margin.bottom}
+          className="curve-axis"
+        />
+        {[cnfMin, (cnfMin + cnfMax) / 2, cnfMax].map((tick) => (
+          <text
+            key={`form-cnf-${tick}`}
+            x={xScale(tick)}
+            y={height - margin.bottom + 18}
+            textAnchor="middle"
+            className="curve-axis-label"
+          >
+            {fmtPercent(tick)}
+          </text>
+        ))}
+        {[ptfeMin, (ptfeMin + ptfeMax) / 2, ptfeMax].map((tick) => (
+          <text
+            key={`form-ptfe-${tick}`}
+            x={margin.left - 10}
+            y={yScale(tick) + 4}
+            textAnchor="end"
+            className="curve-axis-label"
+          >
+            {fmtPercent(tick)}
+          </text>
+        ))}
+        <text x={width / 2} y={height - 12} className="curve-axis-title">
+          CNF wt%
+        </text>
+        <text
+          x={18}
+          y={height / 2}
+          className="curve-axis-title"
+          transform={`rotate(-90 18 ${height / 2})`}
+        >
+          PTFE wt%
+        </text>
+      </svg>
+      <p className="phase-map-legend">
+        {locale === 'en'
+          ? 'Color: best Score_final in local CNF/PTFE design; border = feasible.'
+          : '색상: 해당 CNF/PTFE에서의 최적 Score_final, 테두리 = feasible.'}
+      </p>
+    </div>
+  )
+}
+
+function FormulationAmSeMap({
+  candidates,
+  locale,
+}: {
+  candidates: FormulationCandidateMetrics[]
+  locale: Locale
+}) {
+  const width = 760
+  const height = 320
+  const margin = { top: 20, right: 18, bottom: 52, left: 66 }
+  const plotWidth = width - margin.left - margin.right
+  const plotHeight = height - margin.top - margin.bottom
+  const amValues = candidates.map((candidate) => candidate.amWeightFraction)
+  const seValues = candidates.map((candidate) => candidate.seWeightFraction)
+  const amMin = Math.min(...amValues, 0)
+  const amMax = Math.max(...amValues, 1)
+  const seMin = Math.min(...seValues, 0)
+  const seMax = Math.max(...seValues, 1)
+  const xScale = (value: number) =>
+    margin.left + ((value - seMin) / Math.max(seMax - seMin, 1e-9)) * plotWidth
+  const yScale = (value: number) =>
+    margin.top + (1 - (value - amMin) / Math.max(amMax - amMin, 1e-9)) * plotHeight
+
+  return (
+    <div className="phase-map-card">
+      <svg viewBox={`0 0 ${width} ${height}`} className="phase-map-svg" role="img">
+        <line
+          x1={margin.left}
+          x2={width - margin.right}
+          y1={height - margin.bottom}
+          y2={height - margin.bottom}
+          className="curve-axis"
+        />
+        <line
+          x1={margin.left}
+          x2={margin.left}
+          y1={margin.top}
+          y2={height - margin.bottom}
+          className="curve-axis"
+        />
+        {candidates.map((candidate, index) => (
+          <circle
+            key={`amse-${candidate.seWeightFraction}-${index}`}
+            cx={xScale(candidate.seWeightFraction)}
+            cy={yScale(candidate.amWeightFraction)}
+            r={candidate.feasible ? 4.5 : 3.5}
+            fill={scoreHeatColor(candidate.scoreFinal)}
+            className={candidate.feasible ? 'phase-map-cell--feasible' : 'phase-map-cell'}
+          />
+        ))}
+        <text x={width / 2} y={height - 12} className="curve-axis-title">
+          SE wt%
+        </text>
+        <text
+          x={18}
+          y={height / 2}
+          className="curve-axis-title"
+          transform={`rotate(-90 18 ${height / 2})`}
+        >
+          AM wt%
+        </text>
+      </svg>
+      <p className="phase-map-legend">
+        {locale === 'en'
+          ? 'Feasible AM/SE region along composition constraint line.'
+          : '조성 제약선 위에서의 feasible AM/SE 영역.'}
+      </p>
+    </div>
+  )
+}
+
+function FormulationContourLines({
+  candidates,
+  targetProbability,
+  sigmaETarget,
+  sigmaIonTarget,
+  locale,
+}: {
+  candidates: FormulationCandidateMetrics[]
+  targetProbability: number
+  sigmaETarget: number
+  sigmaIonTarget: number
+  locale: Locale
+}) {
+  const sorted = [...candidates].sort(
+    (left, right) => left.seWeightFraction - right.seWeightFraction,
+  )
+  const width = 760
+  const height = 320
+  const margin = { top: 20, right: 18, bottom: 52, left: 66 }
+  const plotWidth = width - margin.left - margin.right
+  const plotHeight = height - margin.top - margin.bottom
+  const seMin = sorted[0]?.seWeightFraction ?? 0
+  const seMax = sorted[sorted.length - 1]?.seWeightFraction ?? 1
+  const xScale = (value: number) =>
+    margin.left + ((value - seMin) / Math.max(seMax - seMin, 1e-9)) * plotWidth
+  const yScale = (value: number) =>
+    margin.top + (1 - clamp(value, 0, 1.2) / 1.2) * plotHeight
+
+  const pathFor = (values: number[]) =>
+    values
+      .map(
+        (value, index) =>
+          `${index === 0 ? 'M' : 'L'} ${xScale(sorted[index].seWeightFraction)} ${yScale(value)}`,
+      )
+      .join(' ')
+
+  const pePath = pathFor(sorted.map((candidate) => candidate.pe))
+  const pbPath = pathFor(sorted.map((candidate) => candidate.pb))
+  const pionPath = pathFor(sorted.map((candidate) => candidate.pion))
+  const sigmaERatioPath = pathFor(
+    sorted.map((candidate) => candidate.sigmaE / Math.max(sigmaETarget, 1e-12)),
+  )
+  const sigmaIonRatioPath = pathFor(
+    sorted.map((candidate) => candidate.sigmaIon / Math.max(sigmaIonTarget, 1e-12)),
+  )
+
+  return (
+    <div className="phase-map-card">
+      <svg viewBox={`0 0 ${width} ${height}`} className="phase-map-svg" role="img">
+        {[0, 0.3, 0.6, 0.9, 1.2].map((tick) => (
+          <line
+            key={`line-${tick}`}
+            x1={margin.left}
+            x2={width - margin.right}
+            y1={yScale(tick)}
+            y2={yScale(tick)}
+            className="curve-grid"
+          />
+        ))}
+        <line
+          x1={margin.left}
+          x2={width - margin.right}
+          y1={height - margin.bottom}
+          y2={height - margin.bottom}
+          className="curve-axis"
+        />
+        <line
+          x1={margin.left}
+          x2={margin.left}
+          y1={margin.top}
+          y2={height - margin.bottom}
+          className="curve-axis"
+        />
+        <line
+          x1={margin.left}
+          x2={width - margin.right}
+          y1={yScale(targetProbability)}
+          y2={yScale(targetProbability)}
+          className="curve-marker curve-marker--target"
+        />
+        <line
+          x1={margin.left}
+          x2={width - margin.right}
+          y1={yScale(1)}
+          y2={yScale(1)}
+          className="curve-marker curve-marker--current"
+        />
+        <path d={pePath} className="form-line form-line--pe" />
+        <path d={pbPath} className="form-line form-line--pb" />
+        <path d={pionPath} className="form-line form-line--pion" />
+        <path d={sigmaERatioPath} className="form-line form-line--sigmae" />
+        <path d={sigmaIonRatioPath} className="form-line form-line--sigmaion" />
+        <text x={width / 2} y={height - 12} className="curve-axis-title">
+          SE wt%
+        </text>
+      </svg>
+      <p className="phase-map-legend">
+        {locale === 'en'
+          ? 'Contours: P_e, P_b, P_ion and normalized conductivities (σ/σ_target) vs SE.'
+          : '등고선: SE 변화에 따른 P_e, P_b, P_ion 및 정규화 전도도(σ/σ_target).'}
+      </p>
+    </div>
+  )
+}
+
 const cloneCase = (input: CaseInput): CaseInput => JSON.parse(JSON.stringify(input))
 
 type ScrollDirection = 'up' | 'down'
@@ -1162,6 +1473,22 @@ function App() {
     cnfRangeMin: 0.002,
     cnfRangeMax: 0.02,
     cnfStep: 0.0005,
+  })
+  const [formulationConfig, setFormulationConfig] = useState<FormulationEngineConfig>({
+    cnfWeightFraction: 0.01,
+    ptfeWeightFraction: 0.02,
+    targetProbability: 0.999,
+    sigmaETarget: 1,
+    sigmaIonTarget: 1e-3,
+    porosity: 0.09,
+    seMinWeightFraction: 0.18,
+    seMaxWeightFraction: 0.42,
+    seStep: 0.005,
+    mapCnfMin: 0.004,
+    mapCnfMax: 0.03,
+    mapPtfeMin: 0.005,
+    mapPtfeMax: 0.03,
+    mapStep: 0.002,
   })
   const [selectedEquationId, setSelectedEquationId] = useState('workflow-solid')
   const [scrollNav, setScrollNav] = useState<ScrollNavState>({
@@ -1268,13 +1595,26 @@ function App() {
   const text = textByLocale[locale]
   const transportTabLabel =
     locale === 'en'
-      ? { ec: 'EC', ic: 'IC', ecic: 'EC + IC', reverse: 'PTFE Reverse' }
-      : { ec: '전자전도(EC)', ic: '이온전도(IC)', ecic: '통합(EC+IC)' }
+      ? {
+          ec: 'EC',
+          ic: 'IC',
+          ecic: 'EC + IC',
+          reverse: 'PTFE Reverse',
+          formulation: 'Formulation Engine',
+        }
+      : {
+          ec: '전자전도(EC)',
+          ic: '이온전도(IC)',
+          ecic: '통합(EC+IC)',
+          reverse: 'PTFE 역설계',
+          formulation: '조성 추천 엔진',
+        }
   const normalizedTransportTabLabel: Record<TransportTab, string> = {
     ec: transportTabLabel.ec,
     ic: transportTabLabel.ic,
     ecic: transportTabLabel.ecic,
-    reverse: locale === 'en' ? 'PTFE Reverse' : 'PTFE 역설계',
+    reverse: transportTabLabel.reverse,
+    formulation: transportTabLabel.formulation,
   }
   const ionicResultsLabel =
     locale === 'en'
@@ -1369,26 +1709,40 @@ function App() {
     locale === 'en' ? 'Evaluated candidates' : '평가한 후보 수'
   const reverseModelLockNote =
     locale === 'en'
-      ? 'Reverse-design CNF model is locked to Fiber + Segregated with CNF accessible-volume rule = Exclude AM + SE. PTFE network is evaluated as Fibril + Segregated.'
-      : '역설계 CNF 모델은 Fiber + Segregated, CNF 가용부피 규칙은 Exclude AM + SE로 고정됩니다. PTFE 네트워크는 Fibril + Segregated 기준으로 해석합니다.'
+      ? 'Reverse-design CNF model is locked to Fiber + Segregated with CNF accessible-volume rule = Exclude AM + SE. Feasibility now requires both EC and IC probability/conductivity targets.'
+      : '역설계 CNF 모델은 Fiber + Segregated, CNF 가용부피 규칙은 Exclude AM + SE로 고정됩니다. 현재 만족 판정은 EC/IC 확률과 전도도 목표를 동시에 사용합니다.'
   const reverseNoSolutionMessage =
     locale === 'en'
-      ? 'No feasible composition was found in the configured practical ranges. Widen CNF/SE ranges or lower target P.'
-      : '설정한 실용 범위 안에서 만족하는 조성을 찾지 못했습니다. CNF/SE 범위를 넓히거나 목표 P를 완화해 주세요.'
+      ? 'No feasible composition was found in the configured practical ranges under EC+IC constraints. Widen CNF/SE ranges or lower targets.'
+      : 'EC+IC 제약 조건에서 설정한 실용 범위 안의 만족 조성을 찾지 못했습니다. CNF/SE 범위를 넓히거나 목표값을 완화해 주세요.'
   const reverseFixedModeOption =
     locale === 'en' ? 'Fix SE wt%' : 'SE wt% 고정'
   const reverseOptimizeModeOption =
     locale === 'en' ? 'Optimize SE within range' : 'SE 범위 최적화'
   const reverseMapTitle =
     locale === 'en'
-      ? 'CNF vs PTFE phase map (percolation probability)'
-      : 'CNF vs PTFE 상도 (퍼콜레이션 확률)'
+      ? 'CNF vs PTFE phase map (EC+IC feasibility)'
+      : 'CNF vs PTFE 상도 (EC+IC 만족 영역)'
   const reverseMapSubtitle =
     locale === 'en'
-      ? 'Contour line shows the approximate boundary where P reaches the target.'
-      : '등고선은 P가 목표값에 도달하는 경계(근사)를 나타냅니다.'
+      ? 'Contour line approximates the first CNF values satisfying EC+IC constraints at each PTFE.'
+      : '등고선은 각 PTFE 수준에서 EC+IC 제약을 처음 만족하는 CNF 경계(근사)를 나타냅니다.'
+  const formulationTitle =
+    locale === 'en'
+      ? 'Integrated formulation engine'
+      : '통합 조성 추천 엔진'
+  const formulationSubtitle =
+    locale === 'en'
+      ? 'Input CNF/PTFE and targets, then optimize AM/SE with EC, IC, and PTFE network constraints.'
+      : 'CNF/PTFE와 목표값을 입력하면 EC/IC/PTFE 네트워크 제약을 동시에 만족하는 AM/SE를 최적화합니다.'
+  const formulationNoSolution =
+    locale === 'en'
+      ? 'No feasible AM/SE composition found for current constraints.'
+      : '현재 제약에서 만족하는 AM/SE 조성을 찾지 못했습니다.'
   const cnfDiameterLabel =
     locale === 'en' ? 'CNF diameter / size (µm)' : 'CNF 직경 / 크기 (µm)'
+  const seAspectRatioLabel =
+    locale === 'en' ? 'SE aspect ratio (AR_SE)' : 'SE 종횡비 (AR_SE)'
   const reverseExplanationJumpLabel =
     locale === 'en' ? 'Explanation' : '설명 보기'
   const reverseExplanationTitle =
@@ -1415,6 +1769,18 @@ function App() {
     locale === 'en' ? 'Result / meaning' : '결과 / 의미'
   const ptfeFibrilDiameterLabel =
     locale === 'en' ? 'PTFE fibril diameter (µm)' : 'PTFE fibril 직경 (µm)'
+  const sigmaSe0Label =
+    locale === 'en' ? 'Sigma_SE,0 (S/m)' : 'Sigma_SE,0 (S/m)'
+  const ionicAlphaLabel =
+    locale === 'en' ? 'Ionic alpha' : '이온 alpha'
+  const tauExponentLabel =
+    locale === 'en' ? 'Tau exponent' : 'Tau 지수'
+  const fConnModeLabel =
+    locale === 'en' ? 'f_conn mode' : 'f_conn 모드'
+  const sigmaETargetLabel =
+    locale === 'en' ? 'Sigma_e target (S/m)' : 'Sigma_e 목표 (S/m)'
+  const sigmaIonTargetLabel =
+    locale === 'en' ? 'Sigma_ion target (S/m)' : 'Sigma_ion 목표 (S/m)'
 
   const equationSections: EquationSection[] = [
     {
@@ -1891,121 +2257,17 @@ function App() {
   ]
   const allEquations = equationSections.flatMap((section) => section.equations)
 
-  const buildIonicBranch = (calculation: CalculationResult): IBranchResult => {
-    const computeIonicProbability = (target: CalculationResult) => {
-      const solidVolume = Math.max(target.composition.totalSolidVolume, 1e-9)
-      const seSolidFraction = target.composition.volumeFractions.se / solidVolume
-      const amToSeRatio = clamp(
-        deferredGeometry.amParticleSizeUm / Math.max(deferredGeometry.seParticleSizeUm, 1e-9),
-        0,
-        1e6,
-      )
-      const randomThreshold =
-        deferredAssumptions.thresholdMode === 'direct'
-          ? deferredAssumptions.directVthRandom
-          : deferredAssumptions.vthIdeal
-      const segregatedThreshold = randomThreshold / (1 + amToSeRatio)
-      const activeThreshold =
-        deferredAssumptions.networkModel === 'segregated'
-          ? segregatedThreshold
-          : randomThreshold
-      const diff = Math.max(0, seSolidFraction - activeThreshold)
-      const pRaw = deferredAssumptions.p0 * Math.pow(diff, deferredAssumptions.beta)
-      const pCapped = Math.min(1, pRaw)
-      const sigma = deferredAssumptions.sigma0 * Math.pow(diff, deferredAssumptions.t)
-
-      return {
-        seSolidFraction,
-        diff,
-        pRaw,
-        pCapped,
-        sigma,
-        randomThreshold,
-        segregatedThreshold,
-        activeThreshold,
-      }
-    }
-
-    const ionicCore = computeIonicProbability(calculation)
-
-    const solveMinimumSe = (): {
-      minSeWeightFraction: number | null
-      minSeVolFraction: number | null
-    } => {
-      const template = {
-        seWeightFraction: calculation.composition.weightFractions.se,
-        cnfWeightFraction: calculation.composition.weightFractions.cnf,
-        ptfeWeightFraction: calculation.composition.weightFractions.ptfe,
-      }
-      const targetProbability = deferredAssumptions.targetProbability
-      const upperBound =
-        1 - template.cnfWeightFraction - template.ptfeWeightFraction - 1e-6
-      if (upperBound <= 0) {
-        return { minSeWeightFraction: null, minSeVolFraction: null }
-      }
-
-      const evaluateSeProbability = (seWeightFraction: number) => {
-        const candidate = calculateCase(
-          {
-            id: `${calculation.input.id}-se-inverse`,
-            label: calculation.input.label,
-            mode: 'presetMixed',
-            porosity: calculation.input.porosity,
-            seWeightFraction,
-            cnfWeightFraction: template.cnfWeightFraction,
-            ptfeWeightFraction: template.ptfeWeightFraction,
-            amWeightFraction: Math.max(
-              0,
-              1 - seWeightFraction - template.cnfWeightFraction - template.ptfeWeightFraction,
-            ),
-          },
-          deferredDensities,
-          deferredGeometry,
-          deferredAssumptions,
-        )
-        const ionic = computeIonicProbability(candidate)
-        return { probability: ionic.pCapped, candidate }
-      }
-
-      const hiResult = evaluateSeProbability(upperBound)
-      if (hiResult.probability < targetProbability) {
-        return { minSeWeightFraction: null, minSeVolFraction: null }
-      }
-
-      let low = 0
-      let high = upperBound
-      for (let iteration = 0; iteration < 70; iteration += 1) {
-        const mid = (low + high) / 2
-        const { probability } = evaluateSeProbability(mid)
-        if (probability >= targetProbability) {
-          high = mid
-        } else {
-          low = mid
-        }
-      }
-
-      const solved = evaluateSeProbability(high).candidate
-      return {
-        minSeWeightFraction: solved.composition.weightFractions.se,
-        minSeVolFraction: solved.composition.volumeFractions.se,
-      }
-    }
-
-    return {
-      vAvailable: 1,
-      veff: ionicCore.seSolidFraction,
-      diff: ionicCore.diff,
-      pRaw: ionicCore.pRaw,
-      pCapped: ionicCore.pCapped,
-      sigma: ionicCore.sigma,
-      thresholds: {
-        random: ionicCore.randomThreshold,
-        segregated: ionicCore.segregatedThreshold,
-        active: ionicCore.activeThreshold,
-      },
-      inverse: solveMinimumSe(),
-    }
-  }
+  const buildIonicBranch = (
+    calculation: CalculationResult,
+    options?: { targetProbability?: number; sigmaIonTarget?: number; skipInverse?: boolean },
+  ): IonicBranchResult =>
+    calculateIonicBranch(
+      calculation,
+      deferredDensities,
+      deferredGeometry,
+      deferredAssumptions,
+      options,
+    )
 
   const withPtfeModelAssumptions = (
     base: ModelAssumptions,
@@ -2098,7 +2360,7 @@ function App() {
 
   const buildDualRecommendation = (
     ecCalculation: CalculationResult,
-    icCalculation: IBranchResult,
+    icCalculation: IonicBranchResult,
   ): DualRecommendation => {
     const recommendedCnf =
       ecCalculation.inverse.minCnfWeightFraction ??
@@ -2142,7 +2404,9 @@ function App() {
     return {
       feasible:
         recommendedCase.probability.pCapped >= target &&
-        recommendedIonic.pCapped >= target,
+        recommendedIonic.pCapped >= target &&
+        recommendedCase.probability.sigma >= deferredAssumptions.sigmaETarget &&
+        recommendedIonic.sigma >= deferredAssumptions.sigmaIonTarget,
       amWeightFraction: recommendedAm,
       seWeightFraction: recommendedSe,
       cnfWeightFraction: recommendedCnf,
@@ -2189,6 +2453,52 @@ function App() {
       deferredAssumptions,
     ],
   )
+  const formulationAssumptions = useMemo(
+    () => ({
+      ...deferredAssumptions,
+      targetProbability: formulationConfig.targetProbability,
+      sigmaETarget: formulationConfig.sigmaETarget,
+      sigmaIonTarget: formulationConfig.sigmaIonTarget,
+    }),
+    [deferredAssumptions, formulationConfig],
+  )
+  const formulationResult = useMemo(
+    () =>
+      runFormulationEngine(
+        formulationConfig,
+        deferredDensities,
+        deferredGeometry,
+        formulationAssumptions,
+      ),
+    [
+      formulationConfig,
+      deferredDensities,
+      deferredGeometry,
+      formulationAssumptions,
+    ],
+  )
+  const formulationMap = useMemo(
+    () =>
+      buildFormulationMap(
+        formulationConfig,
+        deferredDensities,
+        deferredGeometry,
+        formulationAssumptions,
+      ),
+    [
+      formulationConfig,
+      deferredDensities,
+      deferredGeometry,
+      formulationAssumptions,
+    ],
+  )
+  const formulationCandidates = useMemo(
+    () =>
+      [...formulationResult.candidates].sort(
+        (left, right) => left.seWeightFraction - right.seWeightFraction,
+      ),
+    [formulationResult.candidates],
+  )
   const reverseExplanationSteps = useMemo(() => {
     if (!reverseDesignResult.best) {
       return []
@@ -2196,6 +2506,7 @@ function App() {
 
     const best = reverseDesignResult.best
     const calc = best.calculation
+    const ion = best.ionic
     const ptfeFixed = reverseDesignResult.fixedPtfeApplied
     const seRuleSummary =
       reverseDesignConfig.seMode === 'fixed'
@@ -2251,15 +2562,18 @@ function App() {
         id: 'probability',
         step: locale === 'en' ? 'Step 5. Evaluate percolation probability' : 'Step 5. 퍼콜레이션 확률 평가',
         equation:
-          'P = min(P0 * max(Veff - Vth, 0)^beta, 1)',
+          'PEC/ PIC and sigmaEC / sigmaIC all satisfy their targets',
         substitution: `P0 = ${fmtNumber(deferredAssumptions.p0, 3)}, beta = ${fmtNumber(deferredAssumptions.beta, 3)}, margin = ${fmtNumber(calc.probability.diff, 6)}`,
-        value: `P = ${fmtPercent(calc.probability.pCapped)}, sigma = ${fmtNumber(calc.probability.sigma, 2)} S/m`,
+        value:
+          locale === 'en'
+            ? `EC P ${fmtPercent(calc.probability.pCapped)}, IC P ${fmtPercent(ion.pCapped)}, EC sigma ${fmtNumber(calc.probability.sigma, 2)} S/m, IC sigma ${fmtNumber(ion.sigma, 6)} S/m`
+            : `EC P ${fmtPercent(calc.probability.pCapped)}, IC P ${fmtPercent(ion.pCapped)}, EC 전도도 ${fmtNumber(calc.probability.sigma, 2)} S/m, IC 전도도 ${fmtNumber(ion.sigma, 6)} S/m`,
       },
       {
         id: 'objective',
         step: locale === 'en' ? 'Step 6. Select optimum candidate' : 'Step 6. 최적 후보 선택',
         equation:
-          'minimize (wCNF + wPTFE), subject to P >= Ptarget',
+          'minimize (wCNF + wPTFE), subject to PEC/PIC and sigmaEC/sigmaIC targets',
         substitution: `wCNF + wPTFE = ${fmtPercent(best.additiveFraction)}`,
         value:
           locale === 'en'
@@ -2431,6 +2745,13 @@ function App() {
     value: ReverseDesignConfig[K],
   ) => {
     setReverseDesignConfig((previous) => ({ ...previous, [key]: value }))
+  }
+
+  const updateFormulationConfig = <K extends keyof FormulationEngineConfig>(
+    key: K,
+    value: FormulationEngineConfig[K],
+  ) => {
+    setFormulationConfig((previous) => ({ ...previous, [key]: value }))
   }
 
   const handleCopySummary = async () => {
@@ -2770,7 +3091,7 @@ function App() {
 
   const buildIonicWalkthroughSteps = (
     calculation: CalculationResult,
-    ionic: IBranchResult,
+    ionic: IonicBranchResult,
   ): WalkthroughStep[] => {
     const minimumSeWt =
       ionic.inverse.minSeWeightFraction === null
@@ -2808,11 +3129,12 @@ function App() {
           locale === 'en'
             ? 'Apply the same percolation scaling law to ionic branch.'
             : '동일한 퍼콜레이션 스케일링 식을 이온 분기에 적용합니다.',
-        equation: 'Pion = min(P0·max(Veff,ion - Vth,ion, 0)^β, 1),  σion = σ0·Δ^t',
+        equation:
+          'Pion = min(P0·max(Veff,ion - Vth,ion, 0)^β, 1), σion,eff = σSE,0·fconn·phiSE^alpha/tau',
         value: `P ${fmtPercent(ionic.pCapped)} (raw ${fmtNumber(ionic.pRaw, 4)}), σ ${fmtNumber(
           ionic.sigma,
-          2,
-        )} S/m`,
+          6,
+        )} S/m, tau ${fmtNumber(ionic.tau, 3)}, fconn ${fmtNumber(ionic.fConn, 3)}`,
       },
       {
         title: locale === 'en' ? 'Step 4 · Inverse minimum SE' : '4단계 · 최소 SE 역산',
@@ -2820,7 +3142,7 @@ function App() {
           locale === 'en'
             ? 'Back-solve minimum SE(wt%) to satisfy target probability.'
             : '목표 확률을 만족하는 최소 SE(wt%)를 역산합니다.',
-        equation: 'min wSE such that Pion(wSE) ≥ Ptarget',
+        equation: 'min wSE such that Pion(wSE) ≥ Ptarget and sigmaion(wSE) ≥ sigmaion,target',
         value: `${locale === 'en' ? 'Target' : '목표'} ${fmtPercent(
           deferredAssumptions.targetProbability,
         )} → ${minimumSeWt}`,
@@ -2830,7 +3152,7 @@ function App() {
 
   const buildCombinedWalkthroughSteps = (
     calculation: CalculationResult,
-    ionic: IBranchResult,
+    ionic: IonicBranchResult,
     recommendation: DualRecommendation,
   ): WalkthroughStep[] => [
     {
@@ -2848,7 +3170,8 @@ function App() {
         locale === 'en'
           ? 'Back-solve minimum CNF and minimum SE for the same target probability.'
           : '같은 목표 확률에 대해 최소 CNF와 최소 SE를 각각 역산합니다.',
-      equation: 'min wCNF, min wSE such that PEC ≥ Ptarget and PIC ≥ Ptarget',
+      equation:
+        'min wCNF, min wSE such that PEC/PIC ≥ Ptarget and sigmaEC/sigmaIC ≥ targets',
       value: `CNF ${fmtPercent(calculation.inverse.minCnfWeightFraction ?? 0)}, SE ${fmtPercent(
         ionic.inverse.minSeWeightFraction ?? 0,
       )}`,
@@ -2944,7 +3267,7 @@ function App() {
       </header>
 
       <nav className="transport-tabs" aria-label="Transport model tabs">
-        {(['ec', 'ic', 'ecic', 'reverse'] as const).map((tab) => (
+        {(['ec', 'ic', 'ecic', 'reverse', 'formulation'] as const).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -3199,6 +3522,12 @@ function App() {
                 onChange={(next) => updateGeometry('seParticleSizeUm', next)}
               />
               <NumberField
+                label={seAspectRatioLabel}
+                value={geometry.seAspectRatio}
+                onChange={(next) => updateGeometry('seAspectRatio', next)}
+                step="0.1"
+              />
+              <NumberField
                 label={cnfDiameterLabel}
                 value={geometry.additiveSizeUm}
                 onChange={(next) => updateGeometry('additiveSizeUm', next)}
@@ -3319,6 +3648,48 @@ function App() {
                 value={assumptions.targetProbability}
                 onChange={(next) => updateAssumption('targetProbability', next)}
               />
+              <NumberField
+                label={sigmaETargetLabel}
+                value={assumptions.sigmaETarget}
+                onChange={(next) => updateAssumption('sigmaETarget', next)}
+              />
+              <NumberField
+                label={sigmaIonTargetLabel}
+                value={assumptions.sigmaIonTarget}
+                onChange={(next) => updateAssumption('sigmaIonTarget', next)}
+              />
+              <NumberField
+                label={sigmaSe0Label}
+                value={assumptions.sigmaSe0}
+                onChange={(next) => updateAssumption('sigmaSe0', next)}
+              />
+              <NumberField
+                label={ionicAlphaLabel}
+                value={assumptions.ionicAlpha}
+                onChange={(next) => updateAssumption('ionicAlpha', next)}
+              />
+              <NumberField
+                label={tauExponentLabel}
+                value={assumptions.tauModelExponent}
+                onChange={(next) => updateAssumption('tauModelExponent', next)}
+              />
+              <SelectField
+                label={fConnModeLabel}
+                value={assumptions.fConnMode}
+                onChange={(next) =>
+                  updateAssumption('fConnMode', next as ModelAssumptions['fConnMode'])
+                }
+                options={[
+                  {
+                    value: 'p_ion',
+                    label: locale === 'en' ? 'Use P_ion coupling' : 'P_ion 연동',
+                  },
+                  {
+                    value: 'unity',
+                    label: locale === 'en' ? 'Use f_conn = 1' : 'f_conn = 1',
+                  },
+                ]}
+              />
               {assumptions.thresholdMode !== 'direct' && (
                 <NumberField
                   label={text.vthIdeal}
@@ -3345,7 +3716,7 @@ function App() {
         </section>
 
         <section className="content">
-          {transportTab !== 'reverse' ? (
+          {transportTab !== 'reverse' && transportTab !== 'formulation' ? (
             <article className="panel" id="results-panel">
             <div className="panel-heading panel-heading--row">
               <h2>
@@ -3416,7 +3787,7 @@ function App() {
                 <>
                   <ResultCard label={text.probability} value={fmtPercent(ionicResult.pCapped)} tone="accent" />
                   <ResultCard label={text.probabilityRaw} value={fmtNumber(ionicResult.pRaw, 4)} />
-                  <ResultCard label={text.conductivity} value={`${fmtNumber(ionicResult.sigma, 2)} S/m`} />
+                  <ResultCard label={text.conductivity} value={`${fmtNumber(ionicResult.sigma, 6)} S/m`} />
                   <ResultCard label={text.vAvailable} value={fmtNumber(ionicResult.vAvailable, 4)} />
                   <ResultCard label={text.veff} value={fmtNumber(ionicResult.veff, 5)} />
                   <ResultCard label={text.activeThreshold} value={fmtNumber(ionicResult.thresholds.active, 6)} />
@@ -3447,7 +3818,7 @@ function App() {
                     value={`${fmtNumber(result.probability.sigma, 2)} S/m`}
                     tone="accent"
                   />
-                  <ResultCard label="IC conductivity" value={`${fmtNumber(ionicResult.sigma, 2)} S/m`} />
+                  <ResultCard label="IC conductivity" value={`${fmtNumber(ionicResult.sigma, 6)} S/m`} />
                   <ResultCard
                     label={text.minCnfWt}
                     value={
@@ -3683,13 +4054,23 @@ function App() {
                       tone="accent"
                     />
                     <ResultCard
-                      label={text.probability}
+                      label={locale === 'en' ? 'EC probability' : 'EC 확률'}
                       value={fmtPercent(reverseDesignResult.best.calculation.probability.pCapped)}
                       tone="accent"
                     />
                     <ResultCard
-                      label={text.conductivity}
+                      label={locale === 'en' ? 'EC conductivity' : 'EC 전도도'}
                       value={`${fmtNumber(reverseDesignResult.best.calculation.probability.sigma, 2)} S/m`}
+                      tone="accent"
+                    />
+                    <ResultCard
+                      label={locale === 'en' ? 'IC probability' : 'IC 확률'}
+                      value={fmtPercent(reverseDesignResult.best.ionic.pCapped)}
+                      tone="accent"
+                    />
+                    <ResultCard
+                      label={locale === 'en' ? 'IC conductivity' : 'IC 전도도'}
+                      value={`${fmtNumber(reverseDesignResult.best.ionic.sigma, 6)} S/m`}
                       tone="accent"
                     />
                     <ResultCard
@@ -3745,6 +4126,216 @@ function App() {
             </article>
           ) : null}
 
+          {transportTab === 'formulation' ? (
+            <>
+              <article className="panel">
+                <div className="panel-heading">
+                  <h2>{formulationTitle}</h2>
+                  <p>{formulationSubtitle}</p>
+                </div>
+                <div className="field-grid reverse-controls-grid">
+                  <NumberField
+                    label={locale === 'en' ? 'Input CNF wt%' : '입력 CNF wt%'}
+                    value={formulationConfig.cnfWeightFraction}
+                    onChange={(next) => updateFormulationConfig('cnfWeightFraction', next)}
+                    percent
+                  />
+                  <NumberField
+                    label={locale === 'en' ? 'Input PTFE wt%' : '입력 PTFE wt%'}
+                    value={formulationConfig.ptfeWeightFraction}
+                    onChange={(next) => updateFormulationConfig('ptfeWeightFraction', next)}
+                    percent
+                  />
+                  <NumberField
+                    label={locale === 'en' ? 'Target probability' : '목표 확률'}
+                    value={formulationConfig.targetProbability}
+                    onChange={(next) => updateFormulationConfig('targetProbability', next)}
+                    percent
+                  />
+                  <NumberField
+                    label={sigmaETargetLabel}
+                    value={formulationConfig.sigmaETarget}
+                    onChange={(next) => updateFormulationConfig('sigmaETarget', next)}
+                  />
+                  <NumberField
+                    label={sigmaIonTargetLabel}
+                    value={formulationConfig.sigmaIonTarget}
+                    onChange={(next) => updateFormulationConfig('sigmaIonTarget', next)}
+                  />
+                  <NumberField
+                    label={locale === 'en' ? 'Engine porosity' : '엔진 기공도'}
+                    value={formulationConfig.porosity}
+                    onChange={(next) => updateFormulationConfig('porosity', next)}
+                    percent
+                  />
+                  <NumberField
+                    label={locale === 'en' ? 'SE min wt%' : 'SE 최소 wt%'}
+                    value={formulationConfig.seMinWeightFraction}
+                    onChange={(next) => updateFormulationConfig('seMinWeightFraction', next)}
+                    percent
+                  />
+                  <NumberField
+                    label={locale === 'en' ? 'SE max wt%' : 'SE 최대 wt%'}
+                    value={formulationConfig.seMaxWeightFraction}
+                    onChange={(next) => updateFormulationConfig('seMaxWeightFraction', next)}
+                    percent
+                  />
+                  <NumberField
+                    label={locale === 'en' ? 'SE step' : 'SE 간격'}
+                    value={formulationConfig.seStep}
+                    onChange={(next) => updateFormulationConfig('seStep', next)}
+                    percent
+                  />
+                  <NumberField
+                    label={locale === 'en' ? 'Map CNF min wt%' : '맵 CNF 최소 wt%'}
+                    value={formulationConfig.mapCnfMin}
+                    onChange={(next) => updateFormulationConfig('mapCnfMin', next)}
+                    percent
+                  />
+                  <NumberField
+                    label={locale === 'en' ? 'Map CNF max wt%' : '맵 CNF 최대 wt%'}
+                    value={formulationConfig.mapCnfMax}
+                    onChange={(next) => updateFormulationConfig('mapCnfMax', next)}
+                    percent
+                  />
+                  <NumberField
+                    label={locale === 'en' ? 'Map PTFE min wt%' : '맵 PTFE 최소 wt%'}
+                    value={formulationConfig.mapPtfeMin}
+                    onChange={(next) => updateFormulationConfig('mapPtfeMin', next)}
+                    percent
+                  />
+                  <NumberField
+                    label={locale === 'en' ? 'Map PTFE max wt%' : '맵 PTFE 최대 wt%'}
+                    value={formulationConfig.mapPtfeMax}
+                    onChange={(next) => updateFormulationConfig('mapPtfeMax', next)}
+                    percent
+                  />
+                  <NumberField
+                    label={locale === 'en' ? 'Map step' : '맵 간격'}
+                    value={formulationConfig.mapStep}
+                    onChange={(next) => updateFormulationConfig('mapStep', next)}
+                    percent
+                  />
+                </div>
+
+                {formulationResult.best ? (
+                  <>
+                    <div className="panel-heading reverse-result-heading">
+                      <h3>{locale === 'en' ? 'Recommended composition' : '추천 조성'}</h3>
+                      <p>
+                        {locale === 'en' ? 'Feasible / evaluated' : '만족 후보 / 평가'}:{' '}
+                        {formulationResult.feasibleCount} / {formulationResult.evaluatedCount}
+                      </p>
+                    </div>
+                    <div className="results-grid">
+                      <ResultCard
+                        label={locale === 'en' ? 'Recommended AM wt%' : '추천 AM wt%'}
+                        value={fmtPercent(formulationResult.best.amWeightFraction)}
+                        tone="accent"
+                      />
+                      <ResultCard
+                        label={locale === 'en' ? 'Recommended SE wt%' : '추천 SE wt%'}
+                        value={fmtPercent(formulationResult.best.seWeightFraction)}
+                        tone="accent"
+                      />
+                      <ResultCard
+                        label={locale === 'en' ? 'CNF wt% (fixed)' : 'CNF wt% (고정)'}
+                        value={fmtPercent(formulationResult.best.cnfWeightFraction)}
+                      />
+                      <ResultCard
+                        label={locale === 'en' ? 'PTFE wt% (fixed)' : 'PTFE wt% (고정)'}
+                        value={fmtPercent(formulationResult.best.ptfeWeightFraction)}
+                      />
+                      <ResultCard
+                        label={locale === 'en' ? 'Electronic percolation (P_e)' : '전자 퍼콜레이션 (P_e)'}
+                        value={fmtPercent(formulationResult.best.pe)}
+                        tone="accent"
+                      />
+                      <ResultCard
+                        label={locale === 'en' ? 'PTFE network (P_b)' : 'PTFE 네트워크 (P_b)'}
+                        value={fmtPercent(formulationResult.best.pb)}
+                        tone="accent"
+                      />
+                      <ResultCard
+                        label={locale === 'en' ? 'Ionic probability (P_ion)' : '이온 확률 (P_ion)'}
+                        value={fmtPercent(formulationResult.best.pion)}
+                      />
+                      <ResultCard
+                        label={locale === 'en' ? 'Effective sigma_e' : '유효 sigma_e'}
+                        value={`${fmtNumber(formulationResult.best.sigmaE, 3)} S/m`}
+                        tone="accent"
+                      />
+                      <ResultCard
+                        label={locale === 'en' ? 'Effective sigma_ion' : '유효 sigma_ion'}
+                        value={`${fmtNumber(formulationResult.best.sigmaIon, 6)} S/m`}
+                        tone="accent"
+                      />
+                      <ResultCard
+                        label={locale === 'en' ? 'Final score' : '최종 점수'}
+                        value={fmtNumber(formulationResult.best.scoreFinal, 4)}
+                      />
+                      <ResultCard
+                        label={locale === 'en' ? 'EC threshold' : 'EC 임계값'}
+                        value={fmtNumber(formulationResult.best.ecThreshold, 6)}
+                      />
+                      <ResultCard
+                        label={locale === 'en' ? 'PTFE threshold' : 'PTFE 임계값'}
+                        value={fmtNumber(formulationResult.best.ptfeThreshold, 6)}
+                      />
+                      <ResultCard
+                        label={locale === 'en' ? 'Ion threshold' : '이온 임계값'}
+                        value={fmtNumber(formulationResult.best.ionThreshold, 6)}
+                      />
+                      <ResultCard
+                        label={locale === 'en' ? 'Min safety margin' : '최소 안전여유'}
+                        value={fmtNumber(
+                          Math.min(
+                            formulationResult.best.marginPe,
+                            formulationResult.best.marginPb,
+                            formulationResult.best.marginSigmaE,
+                            formulationResult.best.marginSigmaIon,
+                          ),
+                          5,
+                        )}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="reverse-empty-state">
+                    <p>{formulationNoSolution}</p>
+                  </div>
+                )}
+              </article>
+
+              <article className="panel">
+                <div className="panel-heading">
+                  <h2>{locale === 'en' ? 'Feasible AM/SE region + score heat' : 'Feasible AM/SE 영역 + 점수 히트맵'}</h2>
+                </div>
+                <FormulationAmSeMap candidates={formulationCandidates} locale={locale} />
+              </article>
+
+              <article className="panel">
+                <div className="panel-heading">
+                  <h2>{locale === 'en' ? 'Percolation / conductivity contour lines' : '퍼콜레이션 / 전도도 컨투어 라인'}</h2>
+                </div>
+                <FormulationContourLines
+                  candidates={formulationCandidates}
+                  targetProbability={formulationConfig.targetProbability}
+                  sigmaETarget={formulationConfig.sigmaETarget}
+                  sigmaIonTarget={formulationConfig.sigmaIonTarget}
+                  locale={locale}
+                />
+              </article>
+
+              <article className="panel">
+                <div className="panel-heading">
+                  <h2>{locale === 'en' ? 'CNF/PTFE neighborhood score heatmap' : 'CNF/PTFE 주변 점수 히트맵'}</h2>
+                </div>
+                <FormulationCnfpMap data={formulationMap} locale={locale} />
+              </article>
+            </>
+          ) : null}
+
           {transportTab === 'reverse' ? (
             <article className="panel" id="reverse-design-explanation-section">
               <div className="panel-heading">
@@ -3767,8 +4358,8 @@ function App() {
                   </li>
                   <li>
                     {locale === 'en'
-                      ? 'Optimization objective: minimize CNF + PTFE under P >= target.'
-                      : '최적화 목표: P >= 목표값 조건에서 CNF + PTFE를 최소화.'}
+                      ? 'Optimization objective: minimize CNF + PTFE under EC+IC probability and conductivity targets.'
+                      : '최적화 목표: EC+IC 확률/전도도 목표를 만족하면서 CNF + PTFE를 최소화.'}
                   </li>
                 </ul>
               </div>
@@ -3812,7 +4403,7 @@ function App() {
             </article>
           ) : null}
 
-          {transportTab !== 'reverse' ? (
+          {transportTab !== 'reverse' && transportTab !== 'formulation' ? (
             <>
           <article className="panel">
             <div className="panel-heading">
@@ -3904,7 +4495,7 @@ function App() {
                         <tr key={entry.input.id}>
                           <td data-label={text.caseName}>{entry.input.label[locale]}</td>
                           <td data-label={text.probability}>{fmtPercent(ionic.pCapped)}</td>
-                          <td data-label={text.conductivity}>{fmtNumber(ionic.sigma, 2)} S/m</td>
+                          <td data-label={text.conductivity}>{fmtNumber(ionic.sigma, 6)} S/m</td>
                           <td data-label={minSeWtLabel}>
                             {ionic.inverse.minSeWeightFraction === null
                               ? text.unreachable
@@ -3925,7 +4516,7 @@ function App() {
                           <td data-label="EC P">{fmtPercent(entry.probability.pCapped)}</td>
                           <td data-label="IC P">{fmtPercent(ionic.pCapped)}</td>
                           <td data-label="EC σ">{fmtNumber(entry.probability.sigma, 2)} S/m</td>
-                          <td data-label="IC σ">{fmtNumber(ionic.sigma, 2)} S/m</td>
+                          <td data-label="IC σ">{fmtNumber(ionic.sigma, 6)} S/m</td>
                           <td data-label={text.minCnfWt}>
                             {entry.inverse.minCnfWeightFraction === null
                               ? text.unreachable

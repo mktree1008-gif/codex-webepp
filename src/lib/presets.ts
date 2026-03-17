@@ -18,6 +18,7 @@ export const defaultGeometry: GeometryInput = {
   ptfeAspectRatio: 100,
   amParticleSizeUm: 5,
   seParticleSizeUm: 5,
+  seAspectRatio: 1,
   additiveSizeUm: 0.1,
   ptfeFibrilSizeUm: 0.1,
 }
@@ -37,6 +38,12 @@ export const defaultModelAssumptions: ModelAssumptions = {
   directVthRandom: 0.01,
   directVthSegregated: 0.002,
   targetProbability: 0.9999,
+  sigmaETarget: 1,
+  sigmaIonTarget: 1e-3,
+  sigmaSe0: 3e-3,
+  ionicAlpha: 1.5,
+  tauModelExponent: 0.5,
+  fConnMode: 'p_ion',
 }
 
 export const presetCases: PresetCase[] = [

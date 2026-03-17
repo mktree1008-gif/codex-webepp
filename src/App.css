@@ -897,6 +897,34 @@ td code {
   font-size: 0.9rem;
 }
 
+.form-line {
+  fill: none;
+  stroke-width: 2.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.form-line--pe {
+  stroke: #347f5e;
+}
+
+.form-line--pb {
+  stroke: #245944;
+}
+
+.form-line--pion {
+  stroke: #2d6ca2;
+}
+
+.form-line--sigmae {
+  stroke: #f17138;
+}
+
+.form-line--sigmaion {
+  stroke: #7a8f2b;
+  stroke-dasharray: 5 4;
+}
+
 .curve-legend span {
   display: inline-flex;
   align-items: center;
