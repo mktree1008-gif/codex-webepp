@@ -1257,38 +1257,38 @@ td code {
   }
 
   .table-card {
-    overflow: hidden;
+    overflow-x: auto;
+    overflow-y: hidden;
   }
 
   .responsive-table {
-    min-width: 0;
+    min-width: 760px;
+    width: 100%;
+    display: table;
   }
 
   .responsive-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
+    position: static;
+    width: auto;
+    height: auto;
+    margin: 0;
     padding: 0;
-    overflow: hidden;
+    overflow: visible;
     border: 0;
-    clip: rect(0, 0, 0, 0);
+    clip: auto;
   }
 
-  .responsive-table,
-  .responsive-table tbody,
-  .responsive-table tr,
-  .responsive-table td {
-    display: block;
-    width: 100%;
+  .responsive-table tbody {
+    display: table-row-group;
   }
 
   .responsive-table tr {
-    margin-bottom: 12px;
-    padding: 10px 12px;
-    border-radius: 14px;
-    border: 1px solid rgba(34, 46, 38, 0.12);
-    background: rgba(255, 255, 255, 0.94);
+    display: table-row;
+    margin: 0;
+    padding: 0;
+    border-radius: 0;
+    border: 0;
+    background: transparent;
   }
 
   .responsive-table tr:last-child {
@@ -1296,14 +1296,14 @@ td code {
   }
 
   .responsive-table td {
-    display: flex;
-    justify-content: space-between;
-    gap: 10px;
-    align-items: flex-start;
-    padding: 0.55rem 0;
-    border-bottom: 1px dashed rgba(34, 46, 38, 0.12);
-    text-align: right;
-    word-break: break-word;
+    display: table-cell;
+    justify-content: initial;
+    gap: 0;
+    align-items: initial;
+    padding: 0.8rem 0.55rem;
+    border-bottom: 1px solid rgba(34, 46, 38, 0.08);
+    text-align: left;
+    word-break: normal;
   }
 
   .responsive-table td:last-child {
@@ -1311,18 +1311,11 @@ td code {
   }
 
   .responsive-table td::before {
-    content: attr(data-label);
-    flex: 0 0 44%;
-    text-align: left;
-    font-size: 0.72rem;
-    text-transform: uppercase;
-    letter-spacing: 0.07em;
-    color: var(--muted);
-    word-break: keep-all;
+    content: none;
   }
 
   .responsive-table td code {
-    white-space: normal;
+    white-space: nowrap;
   }
 
   .walkthrough-grid {
@@ -1330,15 +1323,15 @@ td code {
   }
 
   .curve-card {
-    overflow-x: hidden;
+    overflow-x: auto;
   }
 
   .curve-svg {
-    min-width: 0;
+    min-width: 640px;
   }
 
   .phase-map-svg {
-    min-width: 0;
+    min-width: 680px;
   }
 
   .equation-pretty {
